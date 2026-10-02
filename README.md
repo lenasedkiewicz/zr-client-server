@@ -3,8 +3,6 @@
 A simple client/server application communicating over raw TCP sockets, written in pure
 Python (standard library only — no frameworks). The server answers every command with JSON.
 
-> Status: work in progress — see [PLAN.md](PLAN.md) for the implementation plan.
-
 ## Requirements
 
 - Python 3.10+
