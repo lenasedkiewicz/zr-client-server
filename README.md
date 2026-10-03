@@ -8,7 +8,27 @@ Python (standard library only — no frameworks). The server answers every comma
 - Python 3.10+
 - No external dependencies (`socket`, `json`, `time`, `datetime` from the standard library)
 
-## Usage
+## Quick start
+
+Start the server and the client with a single command:
+
+```bash
+python run.py
+```
+
+The launcher:
+
+- opens the server in a new terminal window (Windows console, macOS Terminal, or the first
+  available Linux terminal: `x-terminal-emulator`, `gnome-terminal`, `konsole`, `xterm`),
+- waits until the server accepts connections, then runs the client in the current terminal,
+- reuses a server that is already running instead of starting a second one,
+- falls back to running the server in the background (log in `server.log`) when no terminal
+  window can be opened, e.g. over SSH; such a server is stopped when the client exits.
+
+Typing `stop` ends both the server and the client. Leaving the client with Ctrl+C / Ctrl+D
+keeps a windowed server running.
+
+## Manual start
 
 Start the server (terminal 1):
 
@@ -62,6 +82,7 @@ Response (error):
 zr-client-server/
 ├── server.py      # TCP server
 ├── client.py      # interactive TCP client
+├── run.py         # launcher: starts server + client together
 ├── config.py      # shared configuration (host, port, version, ...)
 ├── protocol.py    # send/receive JSON message helpers
 ├── tests/
