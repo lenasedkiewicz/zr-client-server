@@ -87,6 +87,10 @@ zr-client-server/
 ├── protocol.py    # send/receive JSON message helpers
 ├── tests/
 │   └── test_server.py
+├── docs/
+│   ├── dev-journal/   # one learning entry per commit
+│   ├── concepts/      # concept notes from questions asked while building
+│   └── commands.md    # every shell command used, explained once
 ├── PLAN.md
 └── README.md
 ```
