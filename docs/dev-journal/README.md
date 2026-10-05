@@ -9,3 +9,4 @@ Steps 1–7 of `PLAN.md` were built before the journal started and have no entri
 ## Entries
 
 <!-- - NNN · YYYY-MM-DD · [Title](NNN-slug.md): one-line hook -->
+- 001 · 2026-10-05 · [Register user accounts with salted PBKDF2 hashes](001-register-user-accounts.md): store hashes, never passwords (salt, slow hash, constant-time check)

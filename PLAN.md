@@ -31,6 +31,7 @@ zr-client-server/
 ├── run.py         # launcher: starts server + client together (step 7)
 ├── config.py      # HOST, PORT, BUFFER_SIZE, ENCODING, SERVER_VERSION, SERVER_CREATED
 ├── protocol.py    # send_message / receive_message helpers (shared by both sides)
+├── users.py       # UserStore: accounts with salted PBKDF2 hashes in users.json (step 8)
 ├── tests/
 │   └── test_server.py   # unittest (stdlib) end-to-end tests
 ├── PLAN.md
@@ -106,6 +107,25 @@ same on every OS, unlike separate `.bat` / `.sh` scripts.
 - Tests: none automated (opening windows can't be tested reliably); check by hand on
   Windows (see Verification).
 
+## Step 8 — user accounts: register
+Lets a user create an account with a password, as groundwork for login (step 9).
+
+- **Protocol:** requests may carry an optional `"args"` object, e.g.
+  `{"command": "register", "args": {"username": "alice", "password": "..."}}`.
+  Every handler receives `args`; a handler raising `ValueError` becomes an error response.
+- **`users.py` — `UserStore`:** keeps accounts in `users.json` (path in `config.py`,
+  git-ignored). Passwords are never stored: each user gets a random 16-byte salt
+  (`secrets`) and the file keeps `hashlib.pbkdf2_hmac("sha256", ...)` with 600,000
+  iterations (OWASP), stored per user so the default can be raised later. Checks use
+  `hmac.compare_digest`. Writes go to a temp file swapped in with `os.replace`.
+- **Validation:** username 3–32 characters `[A-Za-z0-9_]`, password at least 8 characters,
+  usernames must be unique.
+- **Client:** `register <username>` asks for the password twice with `getpass` (not echoed).
+- **Server:** `Server(users=...)` accepts a `UserStore`, so tests use a temp file and fewer
+  iterations.
+- **Known limitation:** passwords cross the socket in plain text (no TLS) — acceptable for
+  localhost; production would wrap the socket with `ssl`.
+
 ## Verification
 1. `python server.py` in terminal 1, `python client.py` in terminal 2.
 2. Type `help`, `info`, `uptime` (twice — value grows), `foo` (error) → check JSON output.
@@ -114,6 +134,9 @@ same on every OS, unlike separate `.bat` / `.sh` scripts.
 5. `python run.py` → a server window opens and the client prompt appears in the current
    terminal; `stop` closes both. Run `python run.py` again while a server is already
    running → it reuses that server instead of starting a second one.
+6. In the client: `register alice` → password prompts do not echo what you type; a
+   mismatch is rejected locally; `register alice` again → "User already exists";
+   `users.json` contains a salt and hash, not the password.
 
 ## Assumptions (adjustable)
 - Code, comments, README and messages in English.
