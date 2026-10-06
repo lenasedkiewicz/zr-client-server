@@ -61,8 +61,11 @@ class UserStore:
 
     def verify_password(self, username, password):
         """Return True if ``username`` exists and ``password`` matches its stored hash."""
-        record = self.users.get(username)
+        record = self.users.get(username) if isinstance(username, str) else None
         if record is None or not isinstance(password, str):
+            # Hash anyway, so an unknown username takes as long as a wrong password
+            # and response times don't reveal which usernames exist.
+            self._hash(str(password), bytes(SALT_BYTES), self.iterations)
             return False
         expected = bytes.fromhex(record["hash"])
         actual = self._hash(password, bytes.fromhex(record["salt"]), record["iterations"])

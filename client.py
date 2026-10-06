@@ -23,6 +23,12 @@ def build_request(line):
             print("Passwords do not match")
             return None
         return {"command": "register", "args": {"username": params[0], "password": password}}
+    if name.lower() == "login":
+        if len(params) != 1:
+            print("Usage: login <username>")
+            return None
+        password = getpass.getpass("Password: ")
+        return {"command": "login", "args": {"username": params[0], "password": password}}
     return {"command": line}
 
 
@@ -35,9 +41,10 @@ def main():
 
     with sock, sock.makefile("r", encoding=ENCODING) as sock_file:
         print(f"Connected to {HOST}:{PORT}. Type 'help' for the list of commands.")
+        user = None  # shown in the prompt; mirrors the server-side session
         while True:
             try:
-                command = input("> ").strip()
+                command = input(f"{user}> " if user else "> ").strip()
             except (EOFError, KeyboardInterrupt):
                 print("\nDisconnecting")
                 return
@@ -61,7 +68,13 @@ def main():
                 return
 
             print(json.dumps(response, indent=2))
-            if response.get("status") == "ok" and response.get("command") == "stop":
+            if response.get("status") != "ok":
+                continue
+            if response.get("command") == "login":
+                user = response["data"]["username"]
+            elif response.get("command") == "logout":
+                user = None
+            elif response.get("command") == "stop":
                 print("Server stopped - exiting client")
                 return
 

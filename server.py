@@ -1,4 +1,8 @@
-"""TCP server that answers the register, uptime, info, help and stop commands with JSON."""
+"""TCP server with user accounts that answers commands with JSON.
+
+A new connection starts logged out: only the commands marked ``requires_login=False``
+(help, register, login) work until the client logs in.
+"""
 
 import datetime
 import json
@@ -20,37 +24,62 @@ class Server:
         self.sock.bind((host, port))
         # Actual address - differs from the requested one when port=0 (used by tests).
         self.address = self.sock.getsockname()
+        # name -> (handler, description, requires_login)
         self.commands = {
-            "register": (self.cmd_register, "Creates a user account: register <username>"),
-            "uptime": (self.cmd_uptime, "Returns how long the server has been running"),
-            "info": (self.cmd_info, "Returns the server version and its creation date"),
-            "help": (self.cmd_help, "Returns the list of available commands"),
-            "stop": (self.cmd_stop, "Stops both the server and the client"),
+            "register": (self.cmd_register, "Creates a user account: register <username>", False),
+            "login": (self.cmd_login, "Logs in to an account: login <username>", False),
+            "logout": (self.cmd_logout, "Logs out of the current account", True),
+            "uptime": (self.cmd_uptime, "Returns how long the server has been running", True),
+            "info": (self.cmd_info, "Returns the server version and its creation date", True),
+            "help": (self.cmd_help, "Returns the list of commands you can use now", False),
+            "stop": (self.cmd_stop, "Stops both the server and the client", True),
         }
 
-    def cmd_uptime(self, args):
+    def cmd_uptime(self, args, session):
         seconds = time.time() - self.start_time
         return {
             "uptime_seconds": round(seconds, 2),
             "uptime": str(datetime.timedelta(seconds=int(seconds))),
         }
 
-    def cmd_info(self, args):
+    def cmd_info(self, args, session):
         return {"version": SERVER_VERSION, "created": SERVER_CREATED}
 
-    def cmd_help(self, args):
-        return {name: description for name, (_, description) in self.commands.items()}
+    def cmd_help(self, args, session):
+        logged_in = session["user"] is not None
+        return {
+            name: description
+            for name, (_, description, requires_login) in self.commands.items()
+            if logged_in or not requires_login
+        }
 
-    def cmd_register(self, args):
+    def cmd_register(self, args, session):
         self.users.create_user(args.get("username"), args.get("password"))
         return {"message": f"User created: {args['username']}"}
 
-    def cmd_stop(self, args):
+    def cmd_login(self, args, session):
+        if session["user"] is not None:
+            raise ValueError(f"Already logged in as {session['user']}, logout first")
+        username = args.get("username")
+        if not self.users.verify_password(username, args.get("password")):
+            # Same message for unknown user and wrong password: don't reveal which usernames exist.
+            raise ValueError("Invalid username or password")
+        session["user"] = username
+        return {"message": f"Logged in as {username}", "username": username}
+
+    def cmd_logout(self, args, session):
+        username, session["user"] = session["user"], None
+        return {"message": f"Logged out {username}"}
+
+    def cmd_stop(self, args, session):
         self.running = False
         return {"message": "Server stopping"}
 
-    def handle_request(self, request):
-        """Build the response dict for a single decoded request."""
+    def handle_request(self, request, session):
+        """Build the response dict for a single decoded request.
+
+        ``session`` holds per-connection state: ``{"user": <username or None>}``.
+        """
         if not isinstance(request, dict) or not isinstance(request.get("command"), str):
             return {"status": "error", "message": 'Request must be {"command": "<name>"}'}
         args = request.get("args", {})
@@ -59,15 +88,22 @@ class Server:
         name = request["command"].strip().lower()
         if name not in self.commands:
             return {"status": "error", "message": f"Unknown command: {name}"}
-        handler, _ = self.commands[name]
+        handler, _, requires_login = self.commands[name]
+        if requires_login and session["user"] is None:
+            return {
+                "status": "error",
+                "command": name,
+                "message": "Login required: use 'login <username>' or 'register <username>'",
+            }
         try:
-            data = handler(args)
+            data = handler(args, session)
         except ValueError as error:
             return {"status": "error", "command": name, "message": str(error)}
         return {"status": "ok", "command": name, "data": data}
 
     def handle_client(self, conn):
         """Serve one client until it disconnects or sends ``stop``."""
+        session = {"user": None}  # every connection starts logged out
         with conn, conn.makefile("r", encoding=ENCODING) as conn_file:
             while self.running:
                 try:
@@ -79,7 +115,7 @@ class Server:
                     return
                 if request is None:
                     return
-                send_message(conn, self.handle_request(request))
+                send_message(conn, self.handle_request(request, session))
 
     def serve_forever(self):
         self.running = True

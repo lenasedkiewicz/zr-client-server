@@ -57,6 +57,16 @@ PowerShell: the same command. Use double quotes outside and single quotes inside
 
 *First used in 001*
 
+### python <file>: run a script file
+
+`python <path/to/script.py>`. Runs a Python file. Used for one-off edit scripts kept in
+`$TEMP` (see [$TEMP](#temp-the-temp-directory)) when the script itself contains `'''`
+strings that would clash with quoting in [python -](#python--run-a-script-from-stdin).
+
+Example: `python "$TEMP/claude_edit2.py"`
+
+*First used in 002*
+
 ### python -: run a script from stdin
 
 `python - <<'EOF' … EOF`. `-` tells Python to read the program from standard input, and
@@ -118,11 +128,33 @@ PowerShell: `Get-ChildItem` (`-Recurse` for `-R`).
 ### cat: print or append to files
 
 `cat <files>` prints files one after another. `cat >> <file> <<'EOF'` appends the heredoc
-text to a file.
+text to a file. `cat > <file> <<'EOF'` ⚠️ **overwrites** the file (single `>`), which is
+safe for a new scratch file like `"$TEMP/edit.py"`.
 
 PowerShell: `Get-Content <file>`. To append, use `Add-Content -Encoding utf8 <file> <text>`.
+To overwrite, use `Set-Content -Encoding utf8 <file> <text>`.
 
-*First used in 001*
+*First used in 001; `>` added in 002*
+
+### rm: delete files
+
+`rm <file>`. Deletes a file permanently, with no recycle bin. ⚠️ Safe for temporary files
+you just created. Never combine `-rf` with a variable that might be empty.
+
+Example: `rm "$TEMP/claude_edit2.py"`
+
+PowerShell: `Remove-Item <file>`.
+
+*First used in 002*
+
+### $TEMP: the temp directory
+
+`"$TEMP/<name>"`. In Git Bash on Windows, `$TEMP` points to the user's temp folder, a good
+place for throwaway scripts that must not end up in the repo.
+
+PowerShell: `$env:TEMP`.
+
+*First used in 002*
 
 ### head / tail: first or last lines
 

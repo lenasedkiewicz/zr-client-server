@@ -10,3 +10,4 @@ Steps 1–7 of `PLAN.md` were built before the journal started and have no entri
 
 <!-- - NNN · YYYY-MM-DD · [Title](NNN-slug.md): one-line hook -->
 - 001 · 2026-10-05 · [Register user accounts with salted PBKDF2 hashes](001-register-user-accounts.md): store hashes, never passwords (salt, slow hash, constant-time check)
+- 002 · 2026-10-05 · [Login, logout and access control](002-login-and-access-control.md): authentication vs authorisation, one login check in the dispatcher, per-connection sessions

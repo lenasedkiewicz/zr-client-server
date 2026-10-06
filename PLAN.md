@@ -31,7 +31,7 @@ zr-client-server/
 ├── run.py         # launcher: starts server + client together (step 7)
 ├── config.py      # HOST, PORT, BUFFER_SIZE, ENCODING, SERVER_VERSION, SERVER_CREATED
 ├── protocol.py    # send_message / receive_message helpers (shared by both sides)
-├── users.py       # UserStore: accounts with salted PBKDF2 hashes in users.json (step 8)
+├── users.py       # UserStore: accounts with salted PBKDF2 hashes in users.json (steps 8–9)
 ├── tests/
 │   └── test_server.py   # unittest (stdlib) end-to-end tests
 ├── PLAN.md
@@ -126,6 +126,24 @@ Lets a user create an account with a password, as groundwork for login (step 9).
 - **Known limitation:** passwords cross the socket in plain text (no TLS) — acceptable for
   localhost; production would wrap the socket with `ssl`.
 
+## Step 9 — login and access control
+Every command except `help`, `register` and `login` requires a logged-in user.
+
+- **Commands:** `login <username>` (client asks for the password with `getpass`) and
+  `logout`. `login` while logged in → error "Already logged in as …, logout first".
+- **Dispatch dict:** entries become `(handler, description, requires_login)`. The check
+  lives in one place, `handle_request`, so a new command cannot forget it; a protected
+  command without a login → `{"status": "error", "message": "Login required: ..."}`.
+- **`help`** is generated from the same dict, filtered: logged out → only `help`,
+  `register`, `login`; logged in → every command.
+- **Session per connection:** `handle_client` creates `session = {"user": None}` and passes
+  it to every handler, so closing the connection logs the user out. No tokens are needed
+  because TCP keeps the connection open (unlike stateless HTTP).
+- **No username enumeration:** unknown user and wrong password give the same message, and
+  `verify_password` runs a dummy hash for unknown users so response times match.
+- **Client:** the prompt shows the logged-in user (`alice> `).
+- **Next hardening (not built):** rate limiting / lockout after failed logins, TLS.
+
 ## Verification
 1. `python server.py` in terminal 1, `python client.py` in terminal 2.
 2. Type `help`, `info`, `uptime` (twice — value grows), `foo` (error) → check JSON output.
@@ -137,6 +155,9 @@ Lets a user create an account with a password, as groundwork for login (step 9).
 6. In the client: `register alice` → password prompts do not echo what you type; a
    mismatch is rejected locally; `register alice` again → "User already exists";
    `users.json` contains a salt and hash, not the password.
+7. Logged out: `help` lists only `help`, `register`, `login`; `uptime` → "Login required".
+   `login alice` with a wrong password → "Invalid username or password"; with the right
+   one → prompt becomes `alice> ` and `help` lists every command. `logout` → back to `> `.
 
 ## Assumptions (adjustable)
 - Code, comments, README and messages in English.

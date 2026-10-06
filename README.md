@@ -45,15 +45,33 @@ python client.py
 
 Then type commands at the `>` prompt.
 
+## First use
+
+A new connection is logged out. Create an account once, then log in:
+
+```
+> register alice
+Password:
+Repeat password:
+> login alice
+Password:
+alice> uptime
+```
+
+Passwords are typed without being shown. Until you log in, only `help`, `register` and
+`login` work, and `help` lists just those. Closing the client logs you out.
+
 ## Commands
 
-| Command  | Description |
-|----------|-------------|
-| `register <username>` | Creates a user account; the client asks for the password (hidden) |
-| `uptime` | Returns how long the server has been running |
-| `info`   | Returns the server version and its creation date |
-| `help`   | Returns the list of available commands with short descriptions |
-| `stop`   | Stops both the server and the client |
+| Command  | Login required | Description |
+|----------|----------------|-------------|
+| `register <username>` | no | Creates a user account; the client asks for the password (hidden) |
+| `login <username>` | no | Logs in; the client asks for the password (hidden) |
+| `help`   | no  | Lists the commands you can use now (only the three above when logged out) |
+| `logout` | yes | Logs out of the current account |
+| `uptime` | yes | Returns how long the server has been running |
+| `info`   | yes | Returns the server version and its creation date |
+| `stop`   | yes | Stops both the server and the client |
 
 ## Protocol
 
@@ -84,12 +102,22 @@ Response (error):
 {"status": "error", "message": "Unknown command: foo"}
 ```
 
+Response (protected command while logged out):
+
+```json
+{"status": "error", "command": "uptime", "message": "Login required: use 'login <username>' or 'register <username>'"}
+```
+
 ## User accounts
 
 Accounts are stored in `users.json` (git-ignored) next to the server. Passwords are never
 saved: each user gets a random salt and the file keeps a PBKDF2-HMAC-SHA256 hash
 (600,000 iterations). Usernames are 3–32 letters, digits or `_`; passwords need at least
 8 characters.
+
+The login belongs to the connection: the server keeps `{"user": ...}` for each connected
+client and forgets it when the client disconnects. A wrong password and an unknown username
+get the same error, so the server does not reveal which accounts exist.
 
 Note: there is no TLS, so passwords travel over the socket unencrypted. That is fine on
 `127.0.0.1`, but not on a real network.
