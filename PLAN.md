@@ -144,6 +144,60 @@ Every command except `help`, `register` and `login` requires a logged-in user.
 - **Client:** the prompt shows the logged-in user (`alice> `).
 - **Next hardening (not built):** rate limiting / lockout after failed logins, TLS.
 
+## Step 10 — encrypted transport (TLS) — *planned, not built*
+Usernames and passwords currently cross the socket in plain text (`{"command": "login",
+"args": {"password": "..."}}`), the known limitation from step 8. Wrap every connection in
+TLS (stdlib `ssl`) so a packet capture only sees ciphertext. Passwords at rest are already
+salted PBKDF2 hashes; this adds the in-transit layer (defence in depth).
+
+- **Layering:** TLS sits beneath the protocol, so NDJSON framing and `protocol.py` stay
+  unchanged — `makefile`/`sendall` work the same on an `SSLSocket`.
+- **Certificate:** self-signed, created once with OpenSSL (Python cannot generate
+  certificates). In Git Bash (`openssl` is not on the PowerShell PATH):
+  `MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key
+  -out server.crt -days 365 -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1,DNS:localhost"`.
+  `MSYS_NO_PATHCONV=1` stops Git Bash rewriting `/CN=...` into a Windows path; the
+  `subjectAltName` must contain `127.0.0.1` or hostname verification fails.
+- **`config.py`:** `TLS_CERT_FILE = "server.crt"`, `TLS_KEY_FILE = "server.key"`,
+  `TLS_HANDSHAKE_TIMEOUT = 5.0`.
+- **Server:** `Server(..., tls_context=None)` — default builds
+  `ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)`, `minimum_version = TLSv1_2`,
+  `load_cert_chain(cert, key)`; tests inject their own context (like `users=`).
+  - Wrap each *accepted* connection (`wrap_socket(conn, server_side=True)`), not the
+    listening socket, so one failed handshake affects only that client.
+  - Handshake under `TLS_HANDSHAKE_TIMEOUT`, then back to blocking: a client that connects
+    and sends nothing must not freeze the single-client accept loop.
+  - Handshake failure (`ssl.SSLError`, `OSError`) → print one line, return to `accept()`.
+    This also covers `run.py`'s readiness probe, which connects with plain TCP and closes.
+  - Print "Client connected" only after a successful handshake.
+  - **Fail closed:** cert or key missing → exit with a message showing the `openssl`
+    command. Never fall back to plain text.
+- **Client:** `ssl.create_default_context(cafile=TLS_CERT_FILE)` — certificate and hostname
+  verification stay on, and only our certificate is trusted (pinning); then
+  `wrap_socket(sock, server_hostname=HOST)`. Missing `server.crt` or a failed verification
+  → clear message, exit.
+- **`run.py`:** no change expected (its probe is plain TCP, handled above); confirm by hand.
+- **`.gitignore`:** `server.crt`, `server.key`, `*.pem` — the real key is never committed.
+- **Tests:** every existing test runs over TLS. New: a plain-TCP client gets no reply and
+  the server keeps serving the next (TLS) client; a client trusting a different
+  certificate fails verification.
+  - **Open decision — test certificates:**
+    (a) *recommended:* commit a clearly labelled test-only pair in `tests/certs/` (as
+    CPython's test suite does) — deterministic, works without `openssl` on PATH; secret
+    scanners will flag the private key, which is expected and harmless;
+    (b) generate in `setUpClass` with `openssl` and skip when it is not found — nothing
+    secret-looking committed, but the suite skips in a PowerShell without `openssl`.
+- **Docs:** README — one-time certificate step in setup, protocol section says "NDJSON over
+  TLS"; `docs/commands.md` — `openssl req` and `MSYS_NO_PATHCONV`.
+- **Trade-offs / when you'd differ:** a self-signed pinned cert suits one known server;
+  public services use a CA-issued certificate (e.g. Let's Encrypt), and production apps
+  often terminate TLS at a reverse proxy instead of in the app. A challenge-response login
+  (SCRAM, RFC 5802) would keep the password off the wire without certificates, but leaves
+  usernames and all other traffic readable.
+- **Later chunks:** `users.json` permissions (`os.chmod(..., 0o600)`; limited effect on
+  Windows), rate limiting / lockout after failed logins.
+- **Commit:** `feat: encrypt client/server traffic with TLS`.
+
 ## Verification
 1. `python server.py` in terminal 1, `python client.py` in terminal 2.
 2. Type `help`, `info`, `uptime` (twice — value grows), `foo` (error) → check JSON output.
@@ -158,6 +212,10 @@ Every command except `help`, `register` and `login` requires a logged-in user.
 7. Logged out: `help` lists only `help`, `register`, `login`; `uptime` → "Login required".
    `login alice` with a wrong password → "Invalid username or password"; with the right
    one → prompt becomes `alice> ` and `help` lists every command. `logout` → back to `> `.
+8. *(step 10)* Without `server.crt`/`server.key` the server refuses to start and prints the
+   `openssl` command. With them, client and server work as before; a capture (Wireshark on
+   the loopback adapter) shows TLS records, not JSON or the password. `python run.py` still
+   starts cleanly.
 
 ## Assumptions (adjustable)
 - Code, comments, README and messages in English.
