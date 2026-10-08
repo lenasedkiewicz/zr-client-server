@@ -2,22 +2,51 @@
 
 A new connection starts logged out: only the commands marked ``requires_login=False``
 (help, register, login) work until the client logs in.
+
+Every connection is wrapped in TLS; the server refuses to start without a certificate.
 """
 
 import datetime
 import json
 import socket
+import ssl
+import sys
 import time
 
-from config import ENCODING, HOST, PORT, SERVER_CREATED, SERVER_VERSION
+from config import (
+    ENCODING,
+    HOST,
+    PORT,
+    SERVER_CREATED,
+    SERVER_VERSION,
+    TLS_CERT_FILE,
+    TLS_HANDSHAKE_TIMEOUT,
+    TLS_KEY_FILE,
+)
 from protocol import receive_message, send_message
 from users import UserStore
 
+OPENSSL_COMMAND = (
+    'MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes '
+    f'-keyout {TLS_KEY_FILE} -out {TLS_CERT_FILE} -days 365 -subj "/CN=localhost" '
+    '-addext "subjectAltName=IP:127.0.0.1,DNS:localhost"'
+)
+
+
+def make_server_context(cert_file=TLS_CERT_FILE, key_file=TLS_KEY_FILE):
+    """Build the server-side TLS context; raises ``FileNotFoundError`` if a file is missing."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_cert_chain(cert_file, key_file)
+    return context
+
 
 class Server:
-    def __init__(self, host=HOST, port=PORT, users=None):
+    def __init__(self, host=HOST, port=PORT, users=None, tls_context=None):
         self.start_time = time.time()
         self.users = users if users is not None else UserStore()
+        # Built before binding, so a missing certificate never leaves a socket open.
+        self.tls_context = tls_context if tls_context is not None else make_server_context()
         self.running = False
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -117,6 +146,22 @@ class Server:
                     return
                 send_message(conn, self.handle_request(request, session))
 
+    def tls_handshake(self, conn, addr):
+        """Wrap an accepted connection in TLS; return ``None`` if the handshake fails.
+
+        Each accepted connection is wrapped, not the listening socket, so one bad client
+        (plain TCP, wrong certificate, silence) only affects itself.
+        """
+        conn.settimeout(TLS_HANDSHAKE_TIMEOUT)
+        try:
+            tls_conn = self.tls_context.wrap_socket(conn, server_side=True)
+        except (ssl.SSLError, OSError) as error:
+            print(f"TLS handshake failed: {addr[0]}:{addr[1]} ({error})")
+            conn.close()
+            return None
+        tls_conn.settimeout(None)  # back to blocking for the request loop
+        return tls_conn
+
     def serve_forever(self):
         self.running = True
         self.sock.listen()
@@ -130,8 +175,11 @@ class Server:
                     conn, addr = self.sock.accept()
                 except socket.timeout:
                     continue
+                tls_conn = self.tls_handshake(conn, addr)
+                if tls_conn is None:
+                    continue
                 print(f"Client connected: {addr[0]}:{addr[1]}")
-                self.handle_client(conn)
+                self.handle_client(tls_conn)
                 print(f"Client disconnected: {addr[0]}:{addr[1]}")
         except KeyboardInterrupt:
             print("\nInterrupted")
@@ -141,4 +189,12 @@ class Server:
 
 
 if __name__ == "__main__":
-    Server().serve_forever()
+    try:
+        server = Server()
+    except FileNotFoundError:
+        # Fail closed: never fall back to plain text.
+        print(f"TLS certificate or key not found ({TLS_CERT_FILE}, {TLS_KEY_FILE}).")
+        print("Create them once (Git Bash) in the project folder:")
+        print(f"  {OPENSSL_COMMAND}")
+        sys.exit(1)
+    server.serve_forever()

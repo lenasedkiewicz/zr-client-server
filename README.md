@@ -1,17 +1,33 @@
 # zr-client-server
 
-A simple client/server application communicating over raw TCP sockets, written in pure
-Python (standard library only — no frameworks). The server answers every command with JSON.
+A simple client/server application communicating over raw TCP sockets encrypted with TLS,
+written in pure Python (standard library only — no frameworks). The server answers every
+command with JSON.
 
 ## Requirements
 
 - Python 3.10+
-- No external dependencies (only the standard library: `socket`, `json`, `time`, `datetime`,
-  `hashlib`, `hmac`, `secrets`, `getpass`, ...)
+- No external dependencies (only the standard library: `socket`, `ssl`, `json`, `time`,
+  `datetime`, `hashlib`, `hmac`, `secrets`, `getpass`, ...)
+- The OpenSSL command-line tool, used once to create the TLS certificate (bundled with Git
+  for Windows; preinstalled on most macOS and Linux systems)
+
+## Setup
+
+Create a self-signed certificate and private key once, in the project folder. In Git Bash
+(on Windows `openssl` is not on the PowerShell PATH):
+
+```bash
+MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.crt -days 365 -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1,DNS:localhost"
+```
+
+`server.key` is secret and git-ignored. The server refuses to start without the pair, and
+the client refuses to connect without `server.crt`. It trusts only that certificate. Run
+the command again when it expires after 365 days.
 
 ## Quick start
 
-Start the server and the client with a single command:
+After the one-time [Setup](#setup), start the server and the client with a single command:
 
 ```bash
 python run.py
@@ -75,8 +91,9 @@ Passwords are typed without being shown. Until you log in, only `help`, `registe
 
 ## Protocol
 
-- TCP on `127.0.0.1:65432` (configurable in `config.py`), UTF-8 encoding.
-- Each message is a single JSON object terminated with a newline (`\n`).
+- TLS (1.2 or newer) over TCP on `127.0.0.1:65432` (configurable in `config.py`), UTF-8
+  encoding. A client that does not finish the TLS handshake within 5 seconds is dropped.
+- Inside TLS, each message is a single JSON object terminated with a newline (`\n`).
 
 Request:
 
@@ -119,20 +136,20 @@ The login belongs to the connection: the server keeps `{"user": ...}` for each c
 client and forgets it when the client disconnects. A wrong password and an unknown username
 get the same error, so the server does not reveal which accounts exist.
 
-Note: there is no TLS, so passwords travel over the socket unencrypted. That is fine on
-`127.0.0.1`, but not on a real network.
+Passwords travel inside the TLS connection, so a packet capture sees only ciphertext.
 
 ## Project structure
 
 ```
 zr-client-server/
-├── server.py      # TCP server
-├── client.py      # interactive TCP client
+├── server.py      # TLS server
+├── client.py      # interactive TLS client
 ├── run.py         # launcher: starts server + client together
 ├── config.py      # shared configuration (host, port, version, ...)
 ├── protocol.py    # send/receive JSON message helpers
 ├── users.py       # user accounts with salted password hashes
 ├── tests/
+│   ├── certs/         # test-only certificates (never use them elsewhere)
 │   └── test_server.py
 ├── docs/
 │   ├── dev-journal/   # one learning entry per commit

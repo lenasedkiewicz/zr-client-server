@@ -1,10 +1,11 @@
-"""Interactive TCP client: sends commands to the server and prints the JSON replies."""
+"""Interactive TLS client: sends commands to the server and prints the JSON replies."""
 
 import getpass
 import json
 import socket
+import ssl
 
-from config import ENCODING, HOST, PORT
+from config import ENCODING, HOST, PORT, TLS_CERT_FILE
 from protocol import receive_message, send_message
 
 
@@ -32,15 +33,35 @@ def build_request(line):
     return {"command": line}
 
 
+def make_client_context(cafile=TLS_CERT_FILE):
+    """Trust only our own certificate (pinning); certificate and hostname checks stay on."""
+    return ssl.create_default_context(cafile=cafile)
+
+
 def main():
     try:
-        sock = socket.create_connection((HOST, PORT))
+        context = make_client_context()
+    except FileNotFoundError:
+        print(f"TLS certificate not found ({TLS_CERT_FILE}) - see README 'Setup'")
+        return
+    try:
+        raw_sock = socket.create_connection((HOST, PORT))
     except ConnectionRefusedError:
         print(f"Cannot connect to {HOST}:{PORT} - is the server running?")
         return
+    try:
+        sock = context.wrap_socket(raw_sock, server_hostname=HOST)
+    except ssl.SSLCertVerificationError as error:
+        raw_sock.close()
+        print(f"Server certificate rejected: {error.verify_message}")
+        return
+    except (ssl.SSLError, OSError) as error:
+        raw_sock.close()
+        print(f"TLS handshake failed: {error}")
+        return
 
     with sock, sock.makefile("r", encoding=ENCODING) as sock_file:
-        print(f"Connected to {HOST}:{PORT}. Type 'help' for the list of commands.")
+        print(f"Connected to {HOST}:{PORT} over TLS. Type 'help' for the list of commands.")
         user = None  # shown in the prompt; mirrors the server-side session
         while True:
             try:

@@ -25,3 +25,8 @@ Thumbs.db
 
 # User accounts (password hashes - never commit)
 users.json
+
+# TLS certificate and private key (generated locally - never commit the real key)
+/server.crt
+/server.key
+*.pem

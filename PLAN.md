@@ -33,6 +33,7 @@ zr-client-server/
 ├── protocol.py    # send_message / receive_message helpers (shared by both sides)
 ├── users.py       # UserStore: accounts with salted PBKDF2 hashes in users.json (steps 8–9)
 ├── tests/
+│   ├── certs/           # test-only TLS certificates (step 10)
 │   └── test_server.py   # unittest (stdlib) end-to-end tests
 ├── PLAN.md
 ├── README.md
@@ -144,7 +145,7 @@ Every command except `help`, `register` and `login` requires a logged-in user.
 - **Client:** the prompt shows the logged-in user (`alice> `).
 - **Next hardening (not built):** rate limiting / lockout after failed logins, TLS.
 
-## Step 10 — encrypted transport (TLS) — *planned, not built*
+## Step 10 — encrypted transport (TLS)
 Usernames and passwords currently cross the socket in plain text (`{"command": "login",
 "args": {"password": "..."}}`), the known limitation from step 8. Wrap every connection in
 TLS (stdlib `ssl`) so a packet capture only sees ciphertext. Passwords at rest are already
@@ -177,16 +178,17 @@ salted PBKDF2 hashes; this adds the in-transit layer (defence in depth).
   `wrap_socket(sock, server_hostname=HOST)`. Missing `server.crt` or a failed verification
   → clear message, exit.
 - **`run.py`:** no change expected (its probe is plain TCP, handled above); confirm by hand.
-- **`.gitignore`:** `server.crt`, `server.key`, `*.pem` — the real key is never committed.
+- **`.gitignore`:** `/server.crt`, `/server.key` (anchored to the root, so `tests/certs/`
+  is not hidden), `*.pem` — the real key is never committed.
 - **Tests:** every existing test runs over TLS. New: a plain-TCP client gets no reply and
   the server keeps serving the next (TLS) client; a client trusting a different
-  certificate fails verification.
-  - **Open decision — test certificates:**
-    (a) *recommended:* commit a clearly labelled test-only pair in `tests/certs/` (as
-    CPython's test suite does) — deterministic, works without `openssl` on PATH; secret
-    scanners will flag the private key, which is expected and harmless;
-    (b) generate in `setUpClass` with `openssl` and skip when it is not found — nothing
-    secret-looking committed, but the suite skips in a PowerShell without `openssl`.
+  certificate fails verification; a silent client is dropped after the handshake timeout.
+  - **Test certificates — decided (a):** a clearly labelled test-only pair in
+    `tests/certs/` (`test-server.crt`/`.key`, plus `other.crt` without its key), valid for
+    100 years, as CPython's test suite does — deterministic, works without `openssl` on
+    PATH; secret scanners will flag the private key, which is expected and harmless.
+    Rejected (b): generate in `setUpClass` with `openssl` and skip when it is not found —
+    the suite would silently skip in a PowerShell without `openssl`.
 - **Docs:** README — one-time certificate step in setup, protocol section says "NDJSON over
   TLS"; `docs/commands.md` — `openssl req` and `MSYS_NO_PATHCONV`.
 - **Trade-offs / when you'd differ:** a self-signed pinned cert suits one known server;

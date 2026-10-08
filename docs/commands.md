@@ -74,11 +74,64 @@ the [heredoc](#heredoc-multi-line-input-to-a-command) supplies it. Handy for a t
 script that edits files.
 
 Gotcha: inside a normal (non-raw) Python string, `\n` is a real line break. To write the
-two characters `\n` into a target file, write `\\n` in the script.
+two characters `\n` into a target file, write `\\n` in the script. Text containing many
+backslashes (Windows paths like `C:\Users`, where `\U` is an invalid escape, or regexes) is
+easier as a raw string (`r'…'`) in a script file written with an editor, run with
+[python <file>](#python-file-run-a-script-file). *(Raw-string tip added in 003.)*
 
 PowerShell: pipe a here-string instead: `@'<code>'@ | python -`.
 
 *First used in 001*
+
+### python -u: unbuffered output
+
+`python -u <script>`. Turns off output buffering, so `print` lines reach a redirected file
+or pipe immediately rather than when the buffer fills or the program exits.
+
+Example: `python -u server.py > "$TEMP/srv.log" 2>&1` (server log readable while it runs)
+
+*First used in 003*
+
+## TLS / OpenSSL
+
+### openssl req: create a self-signed certificate
+
+`openssl req -x509 -newkey rsa:2048 -nodes -keyout <key> -out <crt> -days N -subj "/CN=…" -addext "subjectAltName=…"`.
+Creates a new private key and a self-signed certificate in one step. Python's `ssl` can use
+certificates but cannot create them, so this is done once from the command line.
+
+- `req`: the certificate-request tool; with `-x509` it outputs a self-signed certificate
+  instead of a request for a CA to sign.
+- `-newkey rsa:2048`: generate a new 2048-bit RSA key pair.
+- `-nodes`: "no DES", i.e. do not encrypt the private key with a passphrase, so the
+  server can start without a prompt. The key file must then be protected (git-ignored).
+- `-keyout <file>` / `-out <file>`: where to write the private key and the certificate.
+- `-days N`: validity period (365 for the real pair, 36500 for the test pair so tests
+  never expire).
+- `-subj "/CN=localhost"`: the subject, given inline to skip the interactive questions.
+- `-addext "subjectAltName=IP:127.0.0.1,DNS:localhost"`: the names the certificate is
+  valid for. Clients check the hostname against the SAN, not the CN, so it must contain
+  the `127.0.0.1` the client connects to.
+
+Example: `MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.crt -days 365 -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1,DNS:localhost"`
+
+PowerShell: `openssl` ships with Git for Windows but is not on the PowerShell PATH. Run it
+from Git Bash, or call `& "C:\Program Files\Git\usr\bin\openssl.exe" req …` (no
+`MSYS_NO_PATHCONV` needed there).
+
+*First used in 003*
+
+### MSYS_NO_PATHCONV: stop Git Bash rewriting paths
+
+`MSYS_NO_PATHCONV=1 <command>`. Git Bash converts arguments that look like Unix paths into
+Windows paths before running a native program, so `-subj "/CN=localhost"` would arrive as
+`C:/Program Files/Git/CN=localhost`. Setting this variable for one command turns that off.
+`VAR=value cmd` sets the variable only for that command.
+
+PowerShell: not needed (no path conversion). To set a variable for one command:
+`$env:VAR = 'x'; cmd`.
+
+*First used in 003*
 
 ## Git
 
@@ -115,6 +168,29 @@ PowerShell: `git commit -m @'<multi-line message>'@`, with the closing `'@` at c
 
 ## Shell and files
 
+### mkdir: make a directory
+
+`mkdir [-p] <path>`. Creates a directory.
+
+- `-p`: create missing parent directories; no error if it already exists.
+
+Example: `mkdir -p tests/certs`
+
+PowerShell: `New-Item -ItemType Directory -Force tests/certs`
+
+*First used in 003*
+
+### which: find a command
+
+`which <name>`. Prints where the program that runs as `<name>` lives, or nothing if it is
+not on the PATH.
+
+Example: `which openssl` → `/mingw64/bin/openssl` (Git Bash's copy)
+
+PowerShell: `(Get-Command openssl).Source` (errors if not found).
+
+*First used in 003*
+
 ### ls: list files
 
 `ls [-R]`. Lists the files in a directory.
@@ -131,10 +207,13 @@ PowerShell: `Get-ChildItem` (`-Recurse` for `-R`).
 text to a file. `cat > <file> <<'EOF'` ⚠️ **overwrites** the file (single `>`), which is
 safe for a new scratch file like `"$TEMP/edit.py"`.
 
+- `-A`: show hidden characters: `$` at each line end, `^M` for a Windows `\r`. Useful
+  when a text match fails and you suspect line endings or tabs.
+
 PowerShell: `Get-Content <file>`. To append, use `Add-Content -Encoding utf8 <file> <text>`.
 To overwrite, use `Set-Content -Encoding utf8 <file> <text>`.
 
-*First used in 001; `>` added in 002*
+*First used in 001; `>` added in 002; `-A` added in 003*
 
 ### rm: delete files
 
@@ -173,13 +252,77 @@ PowerShell: `Get-Content <file> -TotalCount N` / `-Tail N`. For piped output, us
 - `-v`: invert, i.e. print lines that do **not** match.
 - `-E`: extended regex, so `(a|b)` works without backslashes.
 - `-A N`: also print N lines after each match.
+- `-c`: print only the number of matching lines.
 
 Example: `python -m unittest discover tests 2>&1 | grep -E "^(Ran|OK|FAIL|ERROR)"`.
 `2>&1` sends stderr, where unittest prints its summary, into the pipe.
 
-PowerShell: `Select-String -Pattern <p>` (`-NotMatch` for `-v`, `-Context 0,N` for `-A N`).
+PowerShell: `Select-String -Pattern <p>` (`-NotMatch` for `-v`, `-Context 0,N` for `-A N`,
+`(… | Measure-Object).Count` for `-c`).
 
-*First used in 001*
+*First used in 001; `-c` added in 003*
+
+### sed -n: print selected lines
+
+`sed -n '<from>,<to>p' <file>`. Prints only lines `from` to `to`. `-n` turns off the
+default "print every line", and `p` prints the selected range.
+
+Example: `sed -n 1,80p tests/test_server.py`
+
+PowerShell: `Get-Content tests/test_server.py | Select-Object -First 80`
+(or `-Skip 9 -First 11` for lines 10–20).
+
+*First used in 003*
+
+### cut: keep part of each line
+
+`cut -c<from>-<to>`. Keeps only the given character columns of each line; here, to shorten
+long output.
+
+Example: `grep -n "TCP on" README.md | cat -A | cut -c1-140`
+
+PowerShell: `… | ForEach-Object { $_.Substring(0, [Math]::Min(140, $_.Length)) }`.
+
+*First used in 003*
+
+### printf: print text with escapes
+
+`printf '<format>'`. Like `echo`, but `\n` reliably means a line break on every shell.
+Piping it into a program types those lines into its stdin.
+
+Example: `printf 'help\n' | python client.py`. The client reads `help`, then EOF, and
+exits.
+
+PowerShell: `"help" | python client.py`.
+
+*First used in 003*
+
+### background process: run without waiting
+
+`(cmd &)`. `&` starts the command in the background, and the subshell `( … )` detaches it
+from the current shell. Used to start a server, then talk to it from the same terminal. Stop
+it with a command it understands (here `stop`), or `kill <pid>`.
+
+Example: `(python -u server.py > "$TEMP/srv.log" 2>&1 &)`
+
+PowerShell: `Start-Process python -ArgumentList '-u','server.py' -NoNewWindow -RedirectStandardOutput "$env:TEMP\srv.log"`.
+
+*First used in 003*
+
+### for loop / sleep: retry and wait
+
+`for i in 1 2 3; do <cmd> && break; done` runs `<cmd>` up to three times and stops at the
+first success (`&&` runs `break` only if `<cmd>` succeeded). `sleep N` pauses for N
+seconds.
+
+Example: `for i in 1 2 3 4 5 6 7 8 9 10; do python -c "import socket;socket.create_connection(('127.0.0.1',65432)).close()" 2>/dev/null && break; done`
+(wait until the server accepts connections). `2>/dev/null` discards the error messages
+from failed attempts.
+
+PowerShell: `foreach ($i in 1..10) { python -c "…" 2>$null; if ($?) { break } }`,
+`Start-Sleep -Seconds 1`.
+
+*First used in 003*
 
 ### sed -i: edit a file in place
 

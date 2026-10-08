@@ -3,15 +3,24 @@
 import json
 import os
 import socket
+import ssl
 import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
-from config import ENCODING, SERVER_CREATED, SERVER_VERSION
+from client import make_client_context
+from config import ENCODING, HOST, SERVER_CREATED, SERVER_VERSION
 from protocol import receive_message, send_message
-from server import Server
+from server import Server, make_server_context
 from users import UserStore
+
+# Test-only certificates (see tests/certs/README.md) - never used outside the tests.
+CERTS_DIR = os.path.join(os.path.dirname(__file__), "certs")
+TEST_CERT = os.path.join(CERTS_DIR, "test-server.crt")
+TEST_KEY = os.path.join(CERTS_DIR, "test-server.key")
+OTHER_CERT = os.path.join(CERTS_DIR, "other.crt")
 
 
 class ServerTest(unittest.TestCase):
@@ -20,7 +29,9 @@ class ServerTest(unittest.TestCase):
         self.tmp_dir = tempfile.TemporaryDirectory()
         self.users_path = os.path.join(self.tmp_dir.name, "users.json")
         users = UserStore(self.users_path, iterations=1_000)
-        self.server = Server(port=0, users=users)  # 0 = let the OS pick a free port
+        self.server = Server(  # port 0 = let the OS pick a free port
+            port=0, users=users, tls_context=make_server_context(TEST_CERT, TEST_KEY)
+        )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.connect()
@@ -35,9 +46,19 @@ class ServerTest(unittest.TestCase):
         self.thread.join(timeout=5)
         self.tmp_dir.cleanup()
 
-    def connect(self):
-        self.sock = socket.create_connection(self.server.address, timeout=5)
+    def connect(self, cafile=TEST_CERT):
+        raw_sock = socket.create_connection(self.server.address, timeout=5)
+        try:
+            self.sock = make_client_context(cafile).wrap_socket(raw_sock, server_hostname=HOST)
+        except ssl.SSLError:
+            raw_sock.close()
+            raise
         self.sock_file = self.sock.makefile("r", encoding=ENCODING)
+
+    def disconnect(self):
+        """Close the current client, so the single-client server accepts the next one."""
+        self.sock_file.close()
+        self.sock.close()
 
     def request(self, command, args=None):
         message = {"command": command}
@@ -188,8 +209,7 @@ class ServerTest(unittest.TestCase):
 
     def test_new_connection_starts_logged_out(self):
         self.login_as()
-        self.sock_file.close()
-        self.sock.close()
+        self.disconnect()
         self.connect()  # the server takes the next client after the first disconnects
         self.assertIn("Login required", self.request("uptime")["message"])
 
@@ -200,6 +220,37 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(response["command"], "stop")
         self.thread.join(timeout=5)
         self.assertFalse(self.thread.is_alive())
+
+    def assert_server_still_serves(self):
+        self.connect()
+        self.assertEqual(self.login_as()["status"], "ok")
+
+    def test_plain_tcp_client_gets_no_reply(self):
+        self.disconnect()
+        with socket.create_connection(self.server.address, timeout=5) as plain:
+            plain.sendall(b'{"command": "help"}\n')
+            received = b""
+            try:
+                while chunk := plain.recv(4096):
+                    received += chunk
+            except (ConnectionError, socket.timeout):
+                pass  # the server drops the connection after the failed handshake
+        self.assertNotIn(b"status", received)  # at most a binary TLS alert, never JSON
+        self.assert_server_still_serves()
+
+    def test_client_trusting_other_certificate_rejects_server(self):
+        self.disconnect()
+        with self.assertRaises(ssl.SSLCertVerificationError):
+            self.connect(cafile=OTHER_CERT)
+        self.assert_server_still_serves()
+
+    def test_silent_client_does_not_block_server(self):
+        self.disconnect()
+        with mock.patch("server.TLS_HANDSHAKE_TIMEOUT", 0.2):
+            silent = socket.create_connection(self.server.address, timeout=5)
+            # Sends nothing; after the handshake timeout the server moves on to the next client.
+            self.assert_server_still_serves()
+        silent.close()
 
 
 if __name__ == "__main__":
