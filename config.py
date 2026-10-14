@@ -10,6 +10,7 @@ SERVER_CREATED = "2026-10-01"
 
 # User accounts
 USERS_FILE = "users.json"
+USERS_FILE_MODE = 0o600  # owner read/write only: the file holds password hashes
 # OWASP (2023) recommends at least 600,000 iterations for PBKDF2-HMAC-SHA256.
 PBKDF2_ITERATIONS = 600_000
 USERNAME_PATTERN = r"[A-Za-z0-9_]{3,32}"

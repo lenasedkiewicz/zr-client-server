@@ -4,6 +4,7 @@ import json
 import os
 import socket
 import ssl
+import stat
 import tempfile
 import threading
 import time
@@ -11,7 +12,7 @@ import unittest
 from unittest import mock
 
 from client import make_client_context
-from config import ENCODING, HOST, SERVER_CREATED, SERVER_VERSION
+from config import ENCODING, HOST, SERVER_CREATED, SERVER_VERSION, USERS_FILE_MODE
 from protocol import receive_message, send_message
 from server import Server, make_server_context
 from users import UserStore
@@ -166,6 +167,12 @@ class ServerTest(unittest.TestCase):
         self.register()
         reloaded = UserStore(self.users_path, iterations=1_000)
         self.assertTrue(reloaded.verify_password("alice", "secret123"))
+
+    @unittest.skipIf(os.name == "nt", "Windows uses ACLs; the mode only sets the read-only flag")
+    def test_users_file_is_owner_only(self):
+        self.register()
+        mode = stat.S_IMODE(os.stat(self.users_path).st_mode)
+        self.assertEqual(mode, USERS_FILE_MODE)
 
     def test_commands_require_login(self):
         for command in ("uptime", "info", "stop", "logout"):

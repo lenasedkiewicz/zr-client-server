@@ -31,7 +31,7 @@ zr-client-server/
 ├── run.py         # launcher: starts server + client together (step 7)
 ├── config.py      # HOST, PORT, BUFFER_SIZE, ENCODING, SERVER_VERSION, SERVER_CREATED
 ├── protocol.py    # send_message / receive_message helpers (shared by both sides)
-├── users.py       # UserStore: accounts with salted PBKDF2 hashes in users.json (steps 8–9)
+├── users.py       # UserStore: accounts with salted PBKDF2 hashes in users.json (steps 8–9, 11)
 ├── tests/
 │   ├── certs/           # test-only TLS certificates (step 10)
 │   └── test_server.py   # unittest (stdlib) end-to-end tests
@@ -196,9 +196,26 @@ salted PBKDF2 hashes; this adds the in-transit layer (defence in depth).
   often terminate TLS at a reverse proxy instead of in the app. A challenge-response login
   (SCRAM, RFC 5802) would keep the password off the wire without certificates, but leaves
   usernames and all other traffic readable.
-- **Later chunks:** `users.json` permissions (`os.chmod(..., 0o600)`; limited effect on
-  Windows), rate limiting / lockout after failed logins.
+- **Later chunks:** `users.json` permissions (done in step 11), rate limiting / lockout
+  after failed logins.
 - **Commit:** `feat: encrypt client/server traffic with TLS`.
+
+## Step 11 — restrict users file permissions
+`users.json` holds every salt and PBKDF2 hash. Created with plain `open()`, it gets mode
+`0o644` on Linux/macOS (umask `022`), so any local user could copy the hashes and guess
+passwords offline.
+
+- **`config.py`:** `USERS_FILE_MODE = 0o600` (owner read/write only).
+- **`users.py`:** `_save()` creates the temp file with `os.open(tmp, O_WRONLY | O_CREAT |
+  O_TRUNC, USERS_FILE_MODE)` + `os.fdopen`; `os.replace` keeps the mode. Set at creation,
+  not with a later `os.chmod`, so the hashes are never briefly world-readable.
+- **Windows:** the mode only sets the read-only flag; access is governed by ACLs (the user
+  profile is owner-only by default). No ACL changes in this step.
+- **Test:** after `register`, `stat.S_IMODE(os.stat(path).st_mode) == 0o600`; skipped on
+  Windows, run under WSL/Linux.
+- **Known gaps:** an existing `0o644` file is fixed on its next save; a stale
+  `users.json.tmp` left by a crash keeps its old mode.
+- **Commit:** `feat: create users file with owner-only permissions`.
 
 ## Verification
 1. `python server.py` in terminal 1, `python client.py` in terminal 2.

@@ -12,7 +12,14 @@ import os
 import re
 import secrets
 
-from config import ENCODING, MIN_PASSWORD_LENGTH, PBKDF2_ITERATIONS, USERNAME_PATTERN, USERS_FILE
+from config import (
+    ENCODING,
+    MIN_PASSWORD_LENGTH,
+    PBKDF2_ITERATIONS,
+    USERNAME_PATTERN,
+    USERS_FILE,
+    USERS_FILE_MODE,
+)
 
 SALT_BYTES = 16
 
@@ -34,7 +41,11 @@ class UserStore:
         # Write to a temporary file and swap it in, so a crash mid-write
         # never leaves a half-written users file behind.
         tmp_path = self.path + ".tmp"
-        with open(tmp_path, "w", encoding=ENCODING) as f:
+        # Create the file owner-only (0o600) from the start, so the hashes are never
+        # readable by other users, not even briefly. On Windows this only sets the
+        # read-only flag; access there is governed by ACLs. The umask can only remove bits.
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, USERS_FILE_MODE)
+        with os.fdopen(fd, "w", encoding=ENCODING) as f:
             json.dump(self.users, f, indent=2)
         os.replace(tmp_path, self.path)
 

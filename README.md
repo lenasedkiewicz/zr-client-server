@@ -129,7 +129,8 @@ Response (protected command while logged out):
 
 Accounts are stored in `users.json` (git-ignored) next to the server. Passwords are never
 saved: each user gets a random salt and the file keeps a PBKDF2-HMAC-SHA256 hash
-(600,000 iterations). Usernames are 3–32 letters, digits or `_`; passwords need at least
+(600,000 iterations). On Linux and macOS the file is created readable only by its owner
+(mode `0o600`). Usernames are 3–32 letters, digits or `_`; passwords need at least
 8 characters.
 
 The login belongs to the connection: the server keeps `{"user": ...}` for each connected

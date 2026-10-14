@@ -41,10 +41,14 @@ On Windows the command is `python` (or the launcher `py`). On macOS and Linux it
 finds every `test*.py` in the `tests` folder and runs it.
 
 - `discover <dir>`: the folder to search for tests.
+- `<module>.<Class>.<test>`: run a single test instead, e.g.
+  `tests.test_server.ServerTest.test_users_file_is_owner_only`.
+- `-v`: verbose; print each test name with `ok`, `FAIL` or `skipped '<reason>'`.
 
-Example: `python -m unittest discover tests`
+Example: `python -m unittest discover tests`,
+`python -m unittest -v tests.test_server.ServerTest.test_users_file_is_owner_only`
 
-*First used in 001*
+*First used in 001; single test and `-v` added in 004*
 
 ### python -c: run a one-line program
 
@@ -166,6 +170,50 @@ PowerShell: `git commit -m @'<multi-line message>'@`, with the closing `'@` at c
 
 *First used in 001*
 
+### git show: print a file from a commit
+
+`git show <rev>:<path>`. Prints the file as it was in that commit, without touching the
+working tree. Redirect it to a file to get an old copy.
+
+Example: `git show HEAD:users.py > users.py` (in a throwaway copy, to run the new test
+against the old code)
+
+PowerShell: the same, but `>` writes UTF-16 in Windows PowerShell 5.1; use
+`git show HEAD:users.py | Out-File -Encoding utf8 old_users.py`.
+
+*First used in 004*
+
+## WSL (Linux on Windows)
+
+### wsl.exe: run a command in a Linux distribution
+
+`wsl.exe [-l -q] [-d <distro> -- <command>]`. Runs Linux commands from Windows. Used here
+to test POSIX file permissions, which Windows does not have.
+
+- `-l -q`: list installed distributions, names only.
+- `-d <distro>`: pick the distribution (e.g. `Ubuntu`).
+- `-- <command>`: everything after `--` runs inside Linux; `bash -c '<script>'` runs several
+  commands at once.
+
+Windows drives appear under `/mnt/<letter>` (e.g. `/mnt/d/Programming/zr-client-server`),
+but they don't keep Linux permissions, so copy the project into the Linux file system
+(`/tmp`) before testing modes. Inside WSL Python is `python3`.
+
+Example: `wsl.exe -d Ubuntu -- bash -c 'cd /tmp/zr && python3 -m unittest discover tests'`
+
+PowerShell: the same command (`wsl` without `.exe` also works).
+
+*First used in 004*
+
+### umask: show the default permission mask
+
+`umask`. Prints the bits removed from every new file's mode (POSIX shells only). `0022`
+means group and others lose write, so `open()` (`0o666`) creates `0o644` files.
+
+PowerShell: no equivalent; Windows uses ACLs.
+
+*First used in 004*
+
 ## Shell and files
 
 ### mkdir: make a directory
@@ -215,16 +263,32 @@ To overwrite, use `Set-Content -Encoding utf8 <file> <text>`.
 
 *First used in 001; `>` added in 002; `-A` added in 003*
 
+### cp: copy files
+
+`cp [-r] <source> <dest>`. Copies a file, or a directory with `-r`.
+
+- `-r`: recurse, copying the directory and everything inside it.
+
+Example: `cp -r /mnt/d/Programming/zr-client-server /tmp/zr` (inside WSL)
+
+PowerShell: `Copy-Item -Recurse <source> <dest>`.
+
+*First used in 004*
+
 ### rm: delete files
 
 `rm <file>`. Deletes a file permanently, with no recycle bin. ⚠️ Safe for temporary files
 you just created. Never combine `-rf` with a variable that might be empty.
 
-Example: `rm "$TEMP/claude_edit2.py"`
+- `-r`: recurse into directories; `-f`: no prompts, no error if missing. ⚠️ `rm -rf`
+  deletes a whole tree with no confirmation. Safe only on a fixed, known path you just
+  created, like `rm -rf /tmp/zr` in WSL.
 
-PowerShell: `Remove-Item <file>`.
+Example: `rm "$TEMP/claude_edit2.py"`, `rm -rf /tmp/zr`
 
-*First used in 002*
+PowerShell: `Remove-Item <file>`; ⚠️ `Remove-Item -Recurse -Force <dir>` for `rm -rf`.
+
+*First used in 002; `-rf` added in 004*
 
 ### $TEMP: the temp directory
 
