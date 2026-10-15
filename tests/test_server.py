@@ -15,6 +15,7 @@ from client import make_client_context
 from config import ENCODING, HOST, SERVER_CREATED, SERVER_VERSION, USERS_FILE_MODE
 from protocol import receive_message, send_message
 from server import Server, make_server_context
+from throttle import LoginThrottle
 from users import UserStore
 
 # Test-only certificates (see tests/certs/README.md) - never used outside the tests.
@@ -30,8 +31,14 @@ class ServerTest(unittest.TestCase):
         self.tmp_dir = tempfile.TemporaryDirectory()
         self.users_path = os.path.join(self.tmp_dir.name, "users.json")
         users = UserStore(self.users_path, iterations=1_000)
+        # Fake clock: tests move self.now forward instead of sleeping through a lockout.
+        self.now = 0.0
+        self.throttle = LoginThrottle(max_failures=3, lockout_seconds=60, clock=lambda: self.now)
         self.server = Server(  # port 0 = let the OS pick a free port
-            port=0, users=users, tls_context=make_server_context(TEST_CERT, TEST_KEY)
+            port=0,
+            users=users,
+            tls_context=make_server_context(TEST_CERT, TEST_KEY),
+            login_throttle=self.throttle,
         )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -219,6 +226,53 @@ class ServerTest(unittest.TestCase):
         self.disconnect()
         self.connect()  # the server takes the next client after the first disconnects
         self.assertIn("Login required", self.request("uptime")["message"])
+
+    def fail_logins(self, username="alice", times=3):
+        for _ in range(times):
+            self.assertIn("Invalid", self.login(username, "wrong-pass")["message"])
+
+    def test_login_locked_out_after_repeated_failures(self):
+        self.register()
+        self.fail_logins()
+        response = self.login()  # correct password, but locked out
+        self.assertEqual(response["status"], "error")
+        self.assertIn("Too many failed logins", response["message"])
+        self.assertIn("Login required", self.request("uptime")["message"])
+
+    def test_lockout_survives_reconnect(self):
+        self.register()
+        self.fail_logins()
+        self.disconnect()
+        self.connect()
+        self.assertIn("Too many failed logins", self.login()["message"])
+
+    def test_lockout_is_per_username(self):
+        self.register()
+        self.register("bob")
+        self.fail_logins("alice")
+        self.assertEqual(self.login("bob")["status"], "ok")
+
+    def test_lockout_expires(self):
+        self.register()
+        self.fail_logins()
+        self.now += 59
+        self.assertIn("try again in 2 s", self.login()["message"])
+        self.now += 1
+        self.assertEqual(self.login()["status"], "ok")
+
+    def test_successful_login_resets_failures(self):
+        self.register()
+        self.fail_logins(times=2)
+        self.login()
+        self.request("logout")
+        self.fail_logins(times=2)
+        self.assertEqual(self.login()["status"], "ok")
+
+    def test_unknown_username_is_locked_out_like_existing_one(self):
+        self.register()
+        self.fail_logins("alice")
+        self.fail_logins("nobody")
+        self.assertEqual(self.login("alice")["message"], self.login("nobody")["message"])
 
     def test_stop(self):
         self.login_as()

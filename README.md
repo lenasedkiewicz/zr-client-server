@@ -137,6 +137,11 @@ The login belongs to the connection: the server keeps `{"user": ...}` for each c
 client and forgets it when the client disconnects. A wrong password and an unknown username
 get the same error, so the server does not reveal which accounts exist.
 
+After 5 failed logins for the same username, logging in as that user is blocked for
+60 seconds (`MAX_FAILED_LOGINS`, `LOGIN_LOCKOUT_SECONDS` in `config.py`), even from a new
+connection. Unknown usernames are counted the same way. The counters live in memory and
+are cleared when the server restarts.
+
 Passwords travel inside the TLS connection, so a packet capture sees only ciphertext.
 
 ## Project structure
@@ -149,6 +154,7 @@ zr-client-server/
 ├── config.py      # shared configuration (host, port, version, ...)
 ├── protocol.py    # send/receive JSON message helpers
 ├── users.py       # user accounts with salted password hashes
+├── throttle.py    # temporary lockout after failed logins
 ├── tests/
 │   ├── certs/         # test-only certificates (never use them elsewhere)
 │   └── test_server.py

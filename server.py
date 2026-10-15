@@ -24,6 +24,7 @@ from config import (
     TLS_KEY_FILE,
 )
 from protocol import receive_message, send_message
+from throttle import LoginThrottle
 from users import UserStore
 
 OPENSSL_COMMAND = (
@@ -42,9 +43,10 @@ def make_server_context(cert_file=TLS_CERT_FILE, key_file=TLS_KEY_FILE):
 
 
 class Server:
-    def __init__(self, host=HOST, port=PORT, users=None, tls_context=None):
+    def __init__(self, host=HOST, port=PORT, users=None, tls_context=None, login_throttle=None):
         self.start_time = time.time()
         self.users = users if users is not None else UserStore()
+        self.login_throttle = login_throttle if login_throttle is not None else LoginThrottle()
         # Built before binding, so a missing certificate never leaves a socket open.
         self.tls_context = tls_context if tls_context is not None else make_server_context()
         self.running = False
@@ -90,9 +92,15 @@ class Server:
         if session["user"] is not None:
             raise ValueError(f"Already logged in as {session['user']}, logout first")
         username = args.get("username")
+        if not isinstance(username, str):
+            raise ValueError("Invalid username or password")
+        # Checked before hashing: a locked-out username costs no PBKDF2 work.
+        self.login_throttle.check(username)
         if not self.users.verify_password(username, args.get("password")):
+            self.login_throttle.record_failure(username)
             # Same message for unknown user and wrong password: don't reveal which usernames exist.
             raise ValueError("Invalid username or password")
+        self.login_throttle.record_success(username)
         session["user"] = username
         return {"message": f"Logged in as {username}", "username": username}
 

@@ -183,6 +183,30 @@ PowerShell: the same, but `>` writes UTF-16 in Windows PowerShell 5.1; use
 
 *First used in 004*
 
+### git log: list commits
+
+`git log --oneline`. Lists commits, newest first.
+
+- `--oneline`: one line per commit, with the short hash and the subject.
+
+Example: `git log --oneline | head -15`
+
+PowerShell: the same; use `| Select-Object -First 15` instead of `head`.
+
+*First used in 005*
+
+### git status: show the working tree state
+
+`git status --short [--ignored]`. Shows changed, staged and untracked files.
+
+- `--short`: two-letter codes per file (`M` modified, `??` untracked).
+- `--ignored`: also list ignored files (`!!`), e.g. to check that `server.key` and
+  `users.json` really are git-ignored.
+
+Example: `git status --short --ignored`
+
+*First used in 005*
+
 ## WSL (Linux on Windows)
 
 ### wsl.exe: run a command in a Linux distribution
@@ -396,7 +420,14 @@ undo it.
 
 PowerShell: `(Get-Content f) -replace 'old','new' | Set-Content -Encoding utf8 f`.
 
-*First used in 001*
+Without `-i`, `sed 's/old/new/'` is a filter: it edits text flowing through a pipe and
+leaves files alone. Example: `git show HEAD:server.py | sed 's/old/new/' > server.py`
+(an old version with one line patched, to run new tests against it). ⚠️ `>` overwrites
+`server.py`, so back it up first (`cp server.py "$TEMP/server.py.new"`) and restore it
+afterwards. PowerShell: `(git show HEAD:server.py) -replace 'old','new' | Set-Content
+-Encoding utf8 server.py`.
+
+*First used in 001; filter form added in 005*
 
 ### heredoc: multi-line input to a command
 

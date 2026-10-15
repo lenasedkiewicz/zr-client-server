@@ -32,6 +32,7 @@ zr-client-server/
 ├── config.py      # HOST, PORT, BUFFER_SIZE, ENCODING, SERVER_VERSION, SERVER_CREATED
 ├── protocol.py    # send_message / receive_message helpers (shared by both sides)
 ├── users.py       # UserStore: accounts with salted PBKDF2 hashes in users.json (steps 8–9, 11)
+├── throttle.py    # LoginThrottle: temporary lockout after failed logins (step 12)
 ├── tests/
 │   ├── certs/           # test-only TLS certificates (step 10)
 │   └── test_server.py   # unittest (stdlib) end-to-end tests
@@ -143,7 +144,7 @@ Every command except `help`, `register` and `login` requires a logged-in user.
 - **No username enumeration:** unknown user and wrong password give the same message, and
   `verify_password` runs a dummy hash for unknown users so response times match.
 - **Client:** the prompt shows the logged-in user (`alice> `).
-- **Next hardening (not built):** rate limiting / lockout after failed logins, TLS.
+- **Next hardening:** TLS (done in step 10), lockout after failed logins (done in step 12).
 
 ## Step 10 — encrypted transport (TLS)
 Usernames and passwords currently cross the socket in plain text (`{"command": "login",
@@ -197,7 +198,7 @@ salted PBKDF2 hashes; this adds the in-transit layer (defence in depth).
   (SCRAM, RFC 5802) would keep the password off the wire without certificates, but leaves
   usernames and all other traffic readable.
 - **Later chunks:** `users.json` permissions (done in step 11), rate limiting / lockout
-  after failed logins.
+  after failed logins (done in step 12).
 - **Commit:** `feat: encrypt client/server traffic with TLS`.
 
 ## Step 11 — restrict users file permissions
@@ -217,6 +218,31 @@ passwords offline.
   `users.json.tmp` left by a crash keeps its old mode.
 - **Commit:** `feat: create users file with owner-only permissions`.
 
+## Step 12 — lock out logins after repeated failures
+`login` accepts unlimited guesses, so a script can try a password list against one account
+(online brute force). PBKDF2 protects a stolen file (offline); this protects the protocol.
+
+- **`config.py`:** `MAX_FAILED_LOGINS = 5`, `LOGIN_LOCKOUT_SECONDS = 60`.
+- **`throttle.py` — `LoginThrottle`:** in-memory `failures` and `locked_until` dicts keyed
+  by username. `check(username)` raises `ValueError("Too many failed logins, try again in
+  N s")` while locked and clears an expired lockout; `record_failure` locks the name after
+  the limit; `record_success` resets it. Times come from `time.monotonic()` (immune to
+  system clock changes); `clock` is a parameter so tests move time without sleeping.
+- **Server:** `Server(..., login_throttle=None)` (injected like `users=`). `cmd_login`
+  rejects a non-string username, calls `check` **before** hashing (a locked name costs no
+  PBKDF2 work), then records the result.
+- **Decisions:** count per username, not per connection (reconnecting would reset it) or IP
+  (meaningless on localhost, shared behind NAT); count unknown usernames too, so a lockout
+  doesn't reveal which accounts exist; temporary, not permanent, so nobody can lock a user
+  out for good (still possible for 60 s at a time — real systems add CAPTCHA, MFA or a
+  reset-by-email path).
+- **Tests:** lockout after the limit, survives reconnect, per username, expires (fake
+  clock), success resets the count, unknown and existing usernames get the same message.
+- **Known gaps:** state is lost on restart; the dicts grow with every guessed username
+  (fine for one process, a production server would use a shared store with expiry, e.g.
+  Redis with TTL, or limit at a reverse proxy).
+- **Commit:** `feat: lock out logins after repeated failures`.
+
 ## Verification
 1. `python server.py` in terminal 1, `python client.py` in terminal 2.
 2. Type `help`, `info`, `uptime` (twice — value grows), `foo` (error) → check JSON output.
@@ -235,6 +261,9 @@ passwords offline.
    `openssl` command. With them, client and server work as before; a capture (Wireshark on
    the loopback adapter) shows TLS records, not JSON or the password. `python run.py` still
    starts cleanly.
+9. *(step 12)* `login alice` with a wrong password 5 times → the 6th attempt, even with the
+   right password, says "Too many failed logins, try again in N s"; reconnecting doesn't
+   help; after a minute the right password works.
 
 ## Assumptions (adjustable)
 - Code, comments, README and messages in English.
