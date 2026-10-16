@@ -8,7 +8,9 @@ import subprocess
 import sys
 import time
 
-from config import HOST, PORT
+from admin_setup import ensure_admin
+from config import HOST, PORT, USERS_FILE
+from users import UserStore
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SERVER_SCRIPT = os.path.join(BASE_DIR, "server.py")
@@ -98,6 +100,16 @@ def main():
     if server_is_running():
         print(f"Server already running on {HOST}:{PORT} - reusing it")
     else:
+        # Ask here, in the user's terminal: a prompt in the new server window would
+        # outlast the startup timeout below.
+        try:
+            ensure_admin(UserStore(os.path.join(BASE_DIR, USERS_FILE)))
+        except RuntimeError as error:
+            print(error)
+            sys.exit(1)
+        except (KeyboardInterrupt, EOFError):
+            print("\nAdmin setup cancelled - server not started")
+            sys.exit(1)
         try:
             opened_window = start_server_in_window()
         except OSError as error:

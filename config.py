@@ -15,6 +15,9 @@ USERS_FILE_MODE = 0o600  # owner read/write only: the file holds password hashes
 PBKDF2_ITERATIONS = 600_000
 USERNAME_PATTERN = r"[A-Za-z0-9_]{3,32}"
 MIN_PASSWORD_LENGTH = 8
+# Account roles; a record without "role" (created before step 13) is a regular user.
+ROLE_USER = "user"
+ROLE_ADMIN = "admin"
 # Failed logins per username before a temporary lockout, and how long it lasts.
 MAX_FAILED_LOGINS = 5
 LOGIN_LOCKOUT_SECONDS = 60

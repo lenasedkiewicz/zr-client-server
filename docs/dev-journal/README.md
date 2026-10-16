@@ -14,3 +14,4 @@ Steps 1–7 of `PLAN.md` were built before the journal started and have no entri
 - 003 · 2026-10-08 · [Encrypt client/server traffic with TLS](003-tls-encrypted-transport.md): TLS under NDJSON, pinned self-signed cert, fail closed, per-connection handshake with timeout
 - 004 · 2026-10-14 · [Create the users file with owner-only permissions](004-owner-only-users-file.md): least privilege, mode set at creation (no chmod race), skip on Windows
 - 005 · 2026-10-15 · [Lock out logins after repeated failures](005-login-lockout.md): online vs offline attacks, count per account, temporary lock, monotonic clock injected for tests
+- 006 · 2026-10-16 · [Create an admin account on first start](006-admin-on-first-start.md): bootstrap trust out of band, safe default role, injected prompts

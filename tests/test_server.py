@@ -12,7 +12,7 @@ import unittest
 from unittest import mock
 
 from client import make_client_context
-from config import ENCODING, HOST, SERVER_CREATED, SERVER_VERSION, USERS_FILE_MODE
+from config import ENCODING, HOST, ROLE_USER, SERVER_CREATED, SERVER_VERSION, USERS_FILE_MODE
 from protocol import receive_message, send_message
 from server import Server, make_server_context
 from throttle import LoginThrottle
@@ -140,7 +140,8 @@ class ServerTest(unittest.TestCase):
             content = f.read()
         self.assertNotIn("secret123", content)
         record = json.loads(content)["alice"]
-        self.assertEqual(set(record), {"salt", "hash", "iterations"})
+        self.assertEqual(set(record), {"salt", "hash", "iterations", "role"})
+        self.assertEqual(record["role"], ROLE_USER)
         self.assertTrue(self.server.users.verify_password("alice", "secret123"))
         self.assertFalse(self.server.users.verify_password("alice", "wrong-pass"))
 

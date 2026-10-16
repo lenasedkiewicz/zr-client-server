@@ -323,6 +323,49 @@ PowerShell: `$env:TEMP`.
 
 *First used in 002*
 
+### wc -l: count lines
+
+`wc -l <files>`. Prints the number of lines in each file and a total. Used to see how long
+a file is before reading it.
+
+Example: `wc -l client.py tests/test_server.py`
+
+PowerShell: `(Get-Content client.py | Measure-Object -Line).Lines`
+
+*First used in 006*
+
+### file: show a file's type and line endings
+
+`file <files>`. Guesses what a file contains. For text it also reports the line endings:
+`with CRLF line terminators` means Windows-style `\r\n`. With `core.autocrlf` git stores
+LF and checks out CRLF, so `git diff` stays clean either way.
+
+Example: `file server.py run.py`. In 006 it also caught a Python edit script that had
+rewritten a whole LF file as CRLF: on Windows, `open(p, "w")` in text mode writes every
+`\n` as `\r\n`, and `git diff --stat` then shows every line changed. Fix: write bytes
+(`open(p, "wb")`) or pass `newline="\n"`.
+
+PowerShell: no built-in equivalent. `(Get-Content -Raw server.py) -match "\r\n"` returns
+`True` for CRLF.
+
+*First used in 006*
+
+### < file / $?: redirect stdin, read the exit code
+
+`cmd < file` feeds a file to the command's standard input instead of the keyboard.
+`< /dev/null` gives it empty input, which simulates "no user at the keyboard". `$?` holds
+the exit code of the last command (`0` = success).
+
+Example: `python server.py < /dev/null; echo "exit=$?"`. The server must not wait for an
+admin password nobody can type. Gotcha: on Windows `/dev/null` maps to `NUL`, a character
+device that `isatty()` reports as a terminal, so the program still prompts and then gets
+end of file.
+
+PowerShell: `$null | python server.py; "exit=$LASTEXITCODE"` (`$LASTEXITCODE` holds a
+native program's exit code; `$?` is only `True`/`False`).
+
+*First used in 006*
+
 ### head / tail: first or last lines
 
 `head -N` / `tail -N`. Shows the first or last N lines of a file or of piped output.
@@ -341,6 +384,8 @@ PowerShell: `Get-Content <file> -TotalCount N` / `-Tail N`. For piped output, us
 - `-E`: extended regex, so `(a|b)` works without backslashes.
 - `-A N`: also print N lines after each match.
 - `-c`: print only the number of matching lines.
+- `-r`: search every file under a directory (recursive).
+- `-i`: ignore case.
 
 Example: `python -m unittest discover tests 2>&1 | grep -E "^(Ran|OK|FAIL|ERROR)"`.
 `2>&1` sends stderr, where unittest prints its summary, into the pipe.
@@ -348,7 +393,7 @@ Example: `python -m unittest discover tests 2>&1 | grep -E "^(Ran|OK|FAIL|ERROR)
 PowerShell: `Select-String -Pattern <p>` (`-NotMatch` for `-v`, `-Context 0,N` for `-A N`,
 `(… | Measure-Object).Count` for `-c`).
 
-*First used in 001; `-c` added in 003*
+*First used in 001; `-c` added in 003; `-r`, `-i` added in 006 (`grep -rniE "todo|next" README.md docs`)*
 
 ### sed -n: print selected lines
 

@@ -63,6 +63,22 @@ Then type commands at the `>` prompt.
 
 ## First use
 
+On the first start, when `users.json` has no admin yet, the server (or `python run.py`,
+before it opens the server window) asks you to create one in the terminal:
+
+```
+No admin account yet - create one now.
+Admin username: root
+Password:
+Repeat password:
+Admin created: root
+```
+
+Later starts skip this. Create the admin with the server stopped: the server reads
+`users.json` only when it starts, and its next save would overwrite changes made meanwhile.
+A server started without a terminal (e.g. in the background) refuses to start until an
+admin exists.
+
 A new connection is logged out. Create an account once, then log in:
 
 ```
@@ -131,7 +147,8 @@ Accounts are stored in `users.json` (git-ignored) next to the server. Passwords 
 saved: each user gets a random salt and the file keeps a PBKDF2-HMAC-SHA256 hash
 (600,000 iterations). On Linux and macOS the file is created readable only by its owner
 (mode `0o600`). Usernames are 3–32 letters, digits or `_`; passwords need at least
-8 characters.
+8 characters. Each account has a role, `user` (everyone who registers) or `admin` (created
+on first start); admin-only commands come in a later step.
 
 The login belongs to the connection: the server keeps `{"user": ...}` for each connected
 client and forgets it when the client disconnects. A wrong password and an unknown username
@@ -155,8 +172,10 @@ zr-client-server/
 ├── protocol.py    # send/receive JSON message helpers
 ├── users.py       # user accounts with salted password hashes
 ├── throttle.py    # temporary lockout after failed logins
+├── admin_setup.py # creates the first admin account on first start
 ├── tests/
 │   ├── certs/         # test-only certificates (never use them elsewhere)
+│   ├── test_admin_setup.py
 │   └── test_server.py
 ├── docs/
 │   ├── dev-journal/   # one learning entry per commit

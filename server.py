@@ -13,6 +13,7 @@ import ssl
 import sys
 import time
 
+from admin_setup import ensure_admin
 from config import (
     ENCODING,
     HOST,
@@ -204,5 +205,15 @@ if __name__ == "__main__":
         print(f"TLS certificate or key not found ({TLS_CERT_FILE}, {TLS_KEY_FILE}).")
         print("Create them once (Git Bash) in the project folder:")
         print(f"  {OPENSSL_COMMAND}")
+        sys.exit(1)
+    try:
+        ensure_admin(server.users)
+    except RuntimeError as error:  # no terminal to ask in (e.g. started in the background)
+        server.sock.close()
+        print(error)
+        sys.exit(1)
+    except (KeyboardInterrupt, EOFError):
+        server.sock.close()
+        print("\nAdmin setup cancelled - server not started")
         sys.exit(1)
     server.serve_forever()

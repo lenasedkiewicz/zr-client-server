@@ -16,6 +16,8 @@ from config import (
     ENCODING,
     MIN_PASSWORD_LENGTH,
     PBKDF2_ITERATIONS,
+    ROLE_ADMIN,
+    ROLE_USER,
     USERNAME_PATTERN,
     USERS_FILE,
     USERS_FILE_MODE,
@@ -53,7 +55,7 @@ class UserStore:
     def _hash(password, salt, iterations):
         return hashlib.pbkdf2_hmac("sha256", password.encode(ENCODING), salt, iterations)
 
-    def create_user(self, username, password):
+    def create_user(self, username, password, role=ROLE_USER):
         """Add a new user. Raises ``ValueError`` with a user-facing message on bad input."""
         if not isinstance(username, str) or not re.fullmatch(USERNAME_PATTERN, username):
             raise ValueError("Username must be 3-32 characters: letters, digits or _")
@@ -67,8 +69,13 @@ class UserStore:
             "hash": self._hash(password, salt, self.iterations).hex(),
             # Stored per user, so the default can be raised later without breaking old accounts.
             "iterations": self.iterations,
+            "role": role,
         }
         self._save()
+
+    def has_admin(self):
+        """Return True if at least one account has the admin role."""
+        return any(record.get("role", ROLE_USER) == ROLE_ADMIN for record in self.users.values())
 
     def verify_password(self, username, password):
         """Return True if ``username`` exists and ``password`` matches its stored hash."""

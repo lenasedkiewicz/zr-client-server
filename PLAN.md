@@ -33,6 +33,7 @@ zr-client-server/
 ├── protocol.py    # send_message / receive_message helpers (shared by both sides)
 ├── users.py       # UserStore: accounts with salted PBKDF2 hashes in users.json (steps 8–9, 11)
 ├── throttle.py    # LoginThrottle: temporary lockout after failed logins (step 12)
+├── admin_setup.py # ensure_admin: create the first admin on first start (step 13)
 ├── tests/
 │   ├── certs/           # test-only TLS certificates (step 10)
 │   └── test_server.py   # unittest (stdlib) end-to-end tests
@@ -243,6 +244,32 @@ passwords offline.
   Redis with TTL, or limit at a reverse proxy).
 - **Commit:** `feat: lock out logins after repeated failures`.
 
+## Step 13 — create an admin account on first start
+Groundwork for admin-only commands. The first admin can't be created over the network
+(nobody has admin rights yet), so access to a terminal on the server machine is the proof
+of authority, like Django's `createsuperuser` or Jenkins' first-run setup.
+
+- **`config.py`:** `ROLE_USER = "user"`, `ROLE_ADMIN = "admin"`.
+- **`users.py`:** `create_user(..., role=ROLE_USER)` stores `"role"` in the record;
+  `has_admin()`. A record without `"role"` (written before this step) counts as a user, so
+  an existing `users.json` needs no migration.
+- **`admin_setup.py` — `ensure_admin(store, ask_username, ask_password, interactive)`:**
+  does nothing if an admin exists; otherwise asks for a username and the password twice
+  (`getpass`) and creates the admin, asking again after invalid input. An existing username
+  is rejected, not promoted (promotion is a later command). No terminal → `RuntimeError`.
+  The prompts are parameters, so tests answer them without a keyboard.
+- **Trigger:** "no admin exists", not "no users file", so a `users.json` from earlier steps
+  also gets an admin.
+- **`server.py`:** after the certificate check, before `serve_forever`; no terminal or
+  Ctrl+C → message and exit 1.
+- **`run.py`:** calls `ensure_admin` in the user's terminal *before* opening the server
+  window; a prompt in the new window would outlast the 5 s startup wait.
+- **Rejected:** "first registered user becomes admin" (anyone could win that race).
+- **Known gaps:** the server reads `users.json` only at startup, so editing it while the
+  server runs is lost on the server's next save; the role is stored but not used yet.
+- **Next:** `promote <username>` and admin-only commands (e.g. `stop`).
+- **Commit:** `feat: create an admin account on first start`.
+
 ## Verification
 1. `python server.py` in terminal 1, `python client.py` in terminal 2.
 2. Type `help`, `info`, `uptime` (twice — value grows), `foo` (error) → check JSON output.
@@ -264,6 +291,10 @@ passwords offline.
 9. *(step 12)* `login alice` with a wrong password 5 times → the 6th attempt, even with the
    right password, says "Too many failed logins, try again in N s"; reconnecting doesn't
    help; after a minute the right password works.
+10. *(step 13)* With no admin in `users.json` (e.g. move it away), `python server.py` asks
+    for an admin username and password before listening; the record has `"role": "admin"`.
+    The next start asks nothing. `python run.py` asks in the current terminal, then opens
+    the server window. Ctrl+C at the prompt → "Admin setup cancelled", server not started.
 
 ## Assumptions (adjustable)
 - Code, comments, README and messages in English.
