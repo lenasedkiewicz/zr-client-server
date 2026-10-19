@@ -1,5 +1,6 @@
 """End-to-end tests for the server."""
 
+import re
 import socket
 import threading
 import time
@@ -8,6 +9,13 @@ import unittest
 from config import ENCODING, SERVER_CREATED, SERVER_VERSION
 from protocol import receive_message, send_message
 from server import Server
+
+# Official SemVer 2.0.0 regex, see https://semver.org/ (FAQ: "suggested regular expression").
+SEMVER = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?"
+    r"(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
+)
 
 
 class ServerTest(unittest.TestCase):
@@ -41,6 +49,9 @@ class ServerTest(unittest.TestCase):
     def test_info(self):
         response = self.request("info")
         self.assertEqual(response["data"], {"version": SERVER_VERSION, "created": SERVER_CREATED})
+
+    def test_version_is_semver(self):
+        self.assertRegex(SERVER_VERSION, SEMVER)
 
     def test_help_lists_all_commands(self):
         response = self.request("help")
