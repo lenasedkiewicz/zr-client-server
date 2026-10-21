@@ -278,6 +278,40 @@ of authority, like Django's `createsuperuser` or Jenkins' first-run setup.
   change → `MAJOR`; before `1.0.0` breaking changes may bump `MINOR`).
 - Test: `SERVER_VERSION` matches the official SemVer regex.
 
+## Step 15 — triage secret-scanner findings (GitGuardian on PR #1)
+GitGuardian flagged 2 "secrets" in PR #1. Triage first: a real leak, a test credential and
+a false positive each need a different response.
+
+| ID | Detector | File (commit) | Expected verdict |
+|----|----------|---------------|------------------|
+| 38017644 | Generic Private Key | `tests/certs/test-server.key` (`d8ae1f9`) | test credential, public on purpose (see `tests/certs/README.md`) |
+| 38410419 | Generic Password | `admin_setup.py` (`6dd15b5`) | probably a false positive on `password = ask_password("Password: ")`; there is no literal |
+
+- **Confirm:** open "View secret" for each finding in the GitGuardian dashboard. If either is
+  a real value, it is a leak: remove it from the code and follow "If it were a real leak".
+- **Resolve:** mark 38017644 as a test credential and 38410419 as a false positive, so the
+  PR check passes.
+- **Decide:** whether to add a repo config so GitGuardian skips `tests/certs/`. Look up the
+  exact file name and key in GitGuardian's docs then; don't guess.
+- **Keep the test key in git:** stdlib `ssl` can't create certificates. Generating one at
+  test time would make the suite depend on the `openssl` binary.
+- **Prevention (ask first):** a pre-commit secret scan (`ggshield`, `detect-secrets`) is
+  third-party dev tooling, not an app dependency. It needs the owner's explicit OK.
+- **Rejected:** rewriting history. Neither finding is a real secret, and rewriting the
+  pushed PR branch would need a force-push (see dev journal 008).
+- **If it were a real leak (learning material):** 1) **revoke/rotate first**: once
+  pushed, the secret must be treated as compromised, since forks, clones and caches keep
+  it; 2) only then rewrite history to remove it; 3) force-push and get every clone
+  re-cloned; GitHub may also need a support request to purge cached views and PR refs.
+  - [Removing sensitive data from a repository](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository): GitHub Docs, the full procedure with `git filter-repo --sensitive-data-removal`, its side effects (new hashes, affected PRs), and "rotate first"
+  - [git-filter-repo](https://github.com/newren/git-filter-repo): the tool the git project recommends (a single Python script)
+  - [git filter-branch, WARNING](https://git-scm.com/docs/git-filter-branch): why the old built-in tool is no longer recommended
+  - [BFG Repo-Cleaner](https://rtyley.github.io/bfg-repo-cleaner/): a simpler, faster alternative for deleting files or replacing passwords across history
+  - [Rewriting Git history cheatsheet](https://blog.gitguardian.com/rewriting-git-history-cheatsheet/): GitGuardian, from `--amend` on a local commit to `filter-repo` on a pushed one, plus team coordination
+  - [OWASP Secrets Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html): sections 8–9, detection (pre-commit) and incident response (revoke, rotate, audit)
+- **Commit:** `chore: resolve secret-scanner findings` (plus a dev-journal entry on secret
+  triage and history rewriting).
+
 ## Verification
 1. `python server.py` in terminal 1, `python client.py` in terminal 2.
 2. Type `help`, `info`, `uptime` (twice — value grows), `foo` (error) → check JSON output.
