@@ -26,153 +26,606 @@ Mark destructive commands with ⚠️ and say when they are safe to run.
 
 ## Python
 
-### python -m unittest discover: run the test suite
+### python --version: show the Python version
 
-`python -m unittest discover [<start_dir>]`. Finds `test*.py` files under the directory
-and runs every `TestCase` in them.
+`python --version`. Prints the interpreter version (this project needs 3.10+).
 
-- `-m unittest`: run the stdlib `unittest` module as a script.
-- `discover tests`: start the search in `tests/` (it needs an `__init__.py`).
-
-Example: `python -m unittest discover tests`
-
-Windows: the command is `python` (or the `py` launcher); `python3` usually doesn't exist.
+On Windows the command is `python` (or the launcher `py`). On macOS and Linux it is often
+`python3`.
 
 *First used in 001*
+
+### python -m unittest: run the test suite
+
+`python -m unittest discover tests`. `-m` runs a module as a script, and `unittest discover`
+finds every `test*.py` in the `tests` folder and runs it.
+
+- `discover <dir>`: the folder to search for tests.
+- `<module>.<Class>.<test>`: run a single test instead, e.g.
+  `tests.test_server.ServerTest.test_users_file_is_owner_only`.
+- `-v`: verbose; print each test name with `ok`, `FAIL` or `skipped '<reason>'`.
+
+Example: `python -m unittest discover tests`,
+`python -m unittest -v tests.test_server.ServerTest.test_users_file_is_owner_only`
+
+*First used in 001; single test and `-v` added in 004*
 
 ### python -c: run a one-line program
 
-`python -c "<code>"`. Runs the code passed as a string. Useful for quick checks without
-creating a file.
+`python -c "<code>"`. Runs the code given as a string. Useful for a quick check of one
+function without writing a file.
 
-Example: `python -c "from tests.test_server import SEMVER; print(bool(SEMVER.match('0.1-alpha')))"`
+Example: `python -c "import client; print(client.build_request('info'))"`
 
-PowerShell: wrap the code in single quotes (`'...'`) so PowerShell doesn't expand `$`.
+PowerShell: the same command. Use double quotes outside and single quotes inside.
+
+*First used in 001*
+
+### python <file>: run a script file
+
+`python <path/to/script.py>`. Runs a Python file. Used for one-off edit scripts kept in
+`$TEMP` (see [$TEMP](#temp-the-temp-directory)) when the script itself contains `'''`
+strings that would clash with quoting in [python -](#python--run-a-script-from-stdin).
+
+Example: `python "$TEMP/claude_edit2.py"`
+
+*First used in 002*
+
+### python -: run a script from stdin
+
+`python - <<'EOF' … EOF`. `-` tells Python to read the program from standard input, and
+the [heredoc](#heredoc-multi-line-input-to-a-command) supplies it. Handy for a throwaway
+script that edits files.
+
+Gotcha: inside a normal (non-raw) Python string, `\n` is a real line break. To write the
+two characters `\n` into a target file, write `\\n` in the script. Text containing many
+backslashes (Windows paths like `C:\Users`, where `\U` is an invalid escape, or regexes) is
+easier as a raw string (`r'…'`) in a script file written with an editor, run with
+[python <file>](#python-file-run-a-script-file). *(Raw-string tip added in 003.)*
+
+PowerShell: pipe a here-string instead: `@'<code>'@ | python -`.
 
 *First used in 001*
 
-### python - with a heredoc: run a multi-line script from stdin
+### python -u: unbuffered output
 
-`python - <<'EOF' ... EOF`. `-` tells Python to read the program from standard input, and the
-heredoc supplies it. This is a one-off script that leaves no file behind.
+`python -u <script>`. Turns off output buffering, so `print` lines reach a redirected file
+or pipe immediately rather than when the buffer fills or the program exits.
 
-Example: inserting `test_version_is_semver` and Step 8 into their files.
+Example: `python -u server.py > "$TEMP/srv.log" 2>&1` (server log readable while it runs)
 
-PowerShell: there are no heredocs. Pipe a here-string instead:
-`@'` (newline) code (newline) `'@ | python -`
+*First used in 003*
 
-*First used in 001*
+## TLS / OpenSSL
+
+### openssl req: create a self-signed certificate
+
+`openssl req -x509 -newkey rsa:2048 -nodes -keyout <key> -out <crt> -days N -subj "/CN=…" -addext "subjectAltName=…"`.
+Creates a new private key and a self-signed certificate in one step. Python's `ssl` can use
+certificates but cannot create them, so this is done once from the command line.
+
+- `req`: the certificate-request tool; with `-x509` it outputs a self-signed certificate
+  instead of a request for a CA to sign.
+- `-newkey rsa:2048`: generate a new 2048-bit RSA key pair.
+- `-nodes`: "no DES", i.e. do not encrypt the private key with a passphrase, so the
+  server can start without a prompt. The key file must then be protected (git-ignored).
+- `-keyout <file>` / `-out <file>`: where to write the private key and the certificate.
+- `-days N`: validity period (365 for the real pair, 36500 for the test pair so tests
+  never expire).
+- `-subj "/CN=localhost"`: the subject, given inline to skip the interactive questions.
+- `-addext "subjectAltName=IP:127.0.0.1,DNS:localhost"`: the names the certificate is
+  valid for. Clients check the hostname against the SAN, not the CN, so it must contain
+  the `127.0.0.1` the client connects to.
+
+Example: `MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.crt -days 365 -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1,DNS:localhost"`
+
+PowerShell: `openssl` ships with Git for Windows but is not on the PowerShell PATH. Run it
+from Git Bash, or call `& "C:\Program Files\Git\usr\bin\openssl.exe" req …` (no
+`MSYS_NO_PATHCONV` needed there).
+
+*First used in 003*
+
+### MSYS_NO_PATHCONV: stop Git Bash rewriting paths
+
+`MSYS_NO_PATHCONV=1 <command>`. Git Bash converts arguments that look like Unix paths into
+Windows paths before running a native program, so `-subj "/CN=localhost"` would arrive as
+`C:/Program Files/Git/CN=localhost`. Setting this variable for one command turns that off.
+`VAR=value cmd` sets the variable only for that command.
+
+PowerShell: not needed (no path conversion). To set a variable for one command:
+`$env:VAR = 'x'; cmd`.
+
+*First used in 003*
 
 ## Git
 
-### git branch --show-current: print the current branch
+### git diff: show unstaged changes
 
-`git branch --show-current`. Prints the name of the checked-out branch (nothing on a detached HEAD).
+`git diff [--stat] [<commit> [<commit>]] [-- <path>]`. With no commit, shows what changed in
+the working tree since the last `git add`; with one, compares the working tree with that
+commit; with two, compares the two commits.
 
-Example: checking that the change goes onto `master` before editing.
+- `--stat`: show only a per-file summary of added and removed lines.
+- `-- <path>`: limit the diff to one file; `--` separates revisions from file names.
 
-*First used in 001*
-
-### git status: show what changed in the working tree
-
-`git status [--short]`. Lists modified, staged and untracked files.
-
-- `--short`: one line per file with a two-letter code (`M ` staged, ` M` modified,
-  `??` untracked).
-
-Example: `git status --short` (checks that `server.key` no longer shows as `??` once ignored)
-
-*First used in commit "chore: ignore TLS key, certificate and users file"*
-
-### git diff: show differences between versions
-
-`git diff [<commit>] [<commit>] [-- <path>]`. With no commit, compares the working tree with
-the index; with one, the working tree with that commit; with two, the two commits.
-
-- `-- <path>`: limit the diff to that path; `--` separates revisions from file names.
-- `--stat`: show only a per-file summary (lines added/removed) instead of the full diff.
-  *First used in 001*
-
-Example: `git diff feature/admin -- .gitignore` (no output means the file is identical on
-both sides, so a later merge will not conflict there)
+Example: `git diff --stat`, `git diff server.py`, `git diff feature/admin -- .gitignore` (no
+output means the file is identical on both sides, so a merge will not conflict there)
 
 Git Bash: a revision containing `/` followed by `:path` (e.g. `feature/admin:.gitignore`) can
 be mangled by MSYS path conversion; the `<commit> -- <path>` form avoids it.
 
-*First used in commit "chore: ignore TLS key, certificate and users file"*
+During a merge, `git diff` with no arguments shows only the conflicted files, in a
+"combined" format with two `+`/`-` columns (one per parent).
 
-### git add: stage changes for the next commit
+*First used in 001; commit and `--` forms added in 007; merge view added in 008*
 
-`git add <path>...`. Copies the current content of the files into the index (staging area).
+### git add: stage changes
 
-Example: `git add .gitignore docs/commands.md`
+`git add <paths>`. Marks files to be included in the next commit.
 
-*First used in commit "chore: ignore TLS key, certificate and users file"*
+Example: `git add users.py server.py docs/dev-journal/001-register-user-accounts.md`
 
-### git commit: record staged changes
+*First used in 001*
 
-`git commit -m <message>`. Creates a commit from the index.
+### git commit: record a commit
 
-- `-m <message>`: the message; give it several times for separate paragraphs (subject, body,
-  trailers such as `Co-Authored-By:`).
+`git commit -F <file>`. Creates a commit from the staged changes.
 
-Example: `git commit -m "chore: ignore TLS key, certificate and users file" -m "Co-Authored-By: ..."`
+- `-F -`: read the commit message from stdin (used with a heredoc for multi-line messages).
+- `-m "<msg>"`: give the message inline (one paragraph per `-m`).
 
-*First used in commit "chore: ignore TLS key, certificate and users file"*
+PowerShell: `git commit -m @'<multi-line message>'@`, with the closing `'@` at column 0.
+
+*First used in 001*
+
+### git show: print a file from a commit
+
+`git show <rev>:<path>`. Prints the file as it was in that commit, without touching the
+working tree. Redirect it to a file to get an old copy.
+
+Example: `git show HEAD:users.py > users.py` (in a throwaway copy, to run the new test
+against the old code)
+
+PowerShell: the same, but `>` writes UTF-16 in Windows PowerShell 5.1; use
+`git show HEAD:users.py | Out-File -Encoding utf8 old_users.py`.
+
+*First used in 004*
+
+### git log: list commits
+
+`git log --oneline [<a>..<b>]`. Lists commits, newest first.
+
+- `--oneline`: one line per commit, with the short hash and the subject.
+- `<a>..<b>`: only commits reachable from `<b>` but not from `<a>`, i.e. what `<b>` has that
+  `<a>` lacks.
+
+Example: `git log --oneline | head -15`; `git log --oneline origin/master..origin/feature/admin`
+(the PR's own commits)
+
+PowerShell: the same; use `| Select-Object -First 15` instead of `head`.
+
+*First used in 005; `a..b` added in 008*
+
+### git branch --show-current: print the current branch
+
+`git branch --show-current`. Prints the name of the checked-out branch (nothing on a
+detached HEAD). Without the flag, `git branch` lists local branches with `*` on the current
+one, and `-a` adds the remote-tracking ones (`remotes/origin/...`).
+
+Example: checking that a change goes onto `master` before editing; `git branch -a` after a
+fetch to see `origin/feature/admin`.
+
+*First used in 007; `-a` added in 008*
+
+### git fetch: download new commits from the remote
+
+`git fetch --all --prune`. Downloads commits and branches from the remote into the
+remote-tracking branches (`origin/master`, ...) without touching your own branches or files.
+
+- `--all`: fetch every configured remote, not just `origin`.
+- `--prune`: delete remote-tracking branches whose branch was deleted on the remote.
+
+Example: `git fetch --all --prune` before merging, so `origin/master` is current.
+
+*First used in 008*
+
+### git checkout: switch branches
+
+`git checkout <branch>`. Switches the working tree to another branch. Git refuses if
+uncommitted changes would be overwritten. Newer git also has `git switch <branch>`, which
+does only this.
+
+Example: `git checkout feature/admin`
+
+*First used in 008*
+
+### git merge: join another branch into the current one
+
+`git merge [--no-edit] <branch>`. Brings the other branch's commits into the current branch
+and records a merge commit with two parents. On conflicts it stops: fix each file, `git add`
+it, then `git commit` finishes the merge.
+
+- `--no-edit`: accept git's default message instead of opening an editor.
+- `--abort`: give up and return to the state before the merge. ⚠️ Discards the conflict
+  resolutions you have made so far; safe when you want to start the merge over.
+
+Conflict markers in a file: `<<<<<<< HEAD` (your branch), `=======`, `>>>>>>> <branch>`
+(theirs). Remove all three and keep the right mix of both sides.
+
+Example: `git merge origin/master --no-edit` (on `feature/admin`, to update PR #1)
+
+*First used in 008*
+
+### git merge-base: find the common ancestor
+
+`git merge-base <a> <b>`. Prints the commit where two branches split. A merge compares both
+sides against this commit.
+
+Example: `git merge-base origin/master origin/feature/admin` → `3eafafb…`
+
+*First used in 008*
+
+### git mv: rename a tracked file
+
+`git mv <old> <new>`. Renames the file and stages the rename in one step.
+
+Example: `git mv docs/dev-journal/001-alpha-version-in-info.md docs/dev-journal/007-alpha-version-in-info.md`
+
+PowerShell: the same command.
+
+*First used in 008*
+
+### git push: upload commits to the remote
+
+`git push [<remote> <branch>]`. Sends your new commits to the remote branch. With no
+arguments it pushes the current branch to its upstream. A plain push only adds commits;
+⚠️ `--force` overwrites the remote branch and is only safe on a branch nobody else uses
+(it is what a rebase of a pushed branch would need).
+
+Example: `git push origin feature/admin` (updates PR #1)
+
+*First used in 008*
+
+### gh pr view: show a pull request
+
+`gh pr view <number> [--json <fields>]`. GitHub CLI: prints a pull request's details.
+
+- `--json headRefName,baseRefName,mergeable,title`: print only those fields as JSON;
+  `mergeable` is `CONFLICTING` when GitHub cannot merge it automatically.
+
+Example: `gh pr view 1 --json headRefName,baseRefName,mergeable,title`
+
+*First used in 008*
+
+### git ls-tree: list files in a commit
+
+`git ls-tree [--name-only] <rev> [<path>]`. Lists the files and folders stored in a commit or
+branch, without checking it out.
+
+- `--name-only`: print just the paths, not the mode, type and hash.
+
+Example: `git ls-tree --name-only origin/feature/admin docs/concepts/`
+
+*First used in 008*
+
+### git merge-tree: preview a merge without touching files
+
+`git merge-tree --write-tree --name-only <branch1> <branch2>`. Performs the merge in memory
+and prints the resulting tree plus the conflicted files, leaving the working tree alone.
+Needs git 2.38+. Older versions only know the deprecated `git merge-tree <base> <b1> <b2>`
+form and fail with `usage:` (exit 129), as here; then just merge and `git merge --abort` if
+needed.
+
+*First used in 008*
+
+### git status: show the working tree state
+
+`git status --short [--ignored]`. Shows changed, staged and untracked files.
+
+- `--short`: two-letter codes per file (`M` modified, `??` untracked).
+- `--ignored`: also list ignored files (`!!`), e.g. to check that `server.key` and
+  `users.json` really are git-ignored.
+- `-sb`: short format plus a first line with the branch and how far it is ahead of or
+  behind its upstream (`## feature/admin...origin/feature/admin`).
+
+During a merge, `UU` marks a file with unresolved conflicts, `A ` a file added by the
+other branch.
+
+Example: `git status --short --ignored`
+
+*First used in 005; `-sb` and merge codes added in 008*
+
+## WSL (Linux on Windows)
+
+### wsl.exe: run a command in a Linux distribution
+
+`wsl.exe [-l -q] [-d <distro> -- <command>]`. Runs Linux commands from Windows. Used here
+to test POSIX file permissions, which Windows does not have.
+
+- `-l -q`: list installed distributions, names only.
+- `-d <distro>`: pick the distribution (e.g. `Ubuntu`).
+- `-- <command>`: everything after `--` runs inside Linux; `bash -c '<script>'` runs several
+  commands at once.
+
+Windows drives appear under `/mnt/<letter>` (e.g. `/mnt/d/Programming/zr-client-server`),
+but they don't keep Linux permissions, so copy the project into the Linux file system
+(`/tmp`) before testing modes. Inside WSL Python is `python3`.
+
+Example: `wsl.exe -d Ubuntu -- bash -c 'cd /tmp/zr && python3 -m unittest discover tests'`
+
+PowerShell: the same command (`wsl` without `.exe` also works).
+
+*First used in 004*
+
+### umask: show the default permission mask
+
+`umask`. Prints the bits removed from every new file's mode (POSIX shells only). `0022`
+means group and others lose write, so `open()` (`0o666`) creates `0o644` files.
+
+PowerShell: no equivalent; Windows uses ACLs.
+
+*First used in 004*
 
 ## Shell and files
 
-### cat >> with a heredoc: append lines to a file
+### mkdir: make a directory
 
-`cat >> <file> <<'EOF' ... EOF`. Appends the lines between the markers to the file
-(`>>` appends, `>` would overwrite ⚠️). Quoting `'EOF'` stops the shell from expanding `$` or
-backticks inside.
+`mkdir [-p] <path>`. Creates a directory.
 
-Example: appending the ignore rules to `.gitignore`
+- `-p`: create missing parent directories; no error if it already exists.
 
-PowerShell: `Add-Content -Encoding utf8 .gitignore "users.json"` (one call per line, or pass
-an array of lines)
+Example: `mkdir -p tests/certs`
 
-*First used in commit "chore: ignore TLS key, certificate and users file"*
+PowerShell: `New-Item -ItemType Directory -Force tests/certs`
+
+*First used in 003*
+
+### which: find a command
+
+`which <name>`. Prints where the program that runs as `<name>` lives, or nothing if it is
+not on the PATH.
+
+Example: `which openssl` → `/mingw64/bin/openssl` (Git Bash's copy)
+
+PowerShell: `(Get-Command openssl).Source` (errors if not found).
+
+*First used in 003*
+
+### ls: list files
+
+`ls [-R]`. Lists the files in a directory.
+
+- `-R`: recurse into subdirectories.
+
+PowerShell: `Get-ChildItem` (`-Recurse` for `-R`).
+
+*First used in 001*
+
+### cat: print or append to files
+
+`cat <files>` prints files one after another. `cat >> <file> <<'EOF'` appends the heredoc
+text to a file. `cat > <file> <<'EOF'` ⚠️ **overwrites** the file (single `>`), which is
+safe for a new scratch file like `"$TEMP/edit.py"`.
+
+- `-A`: show hidden characters: `$` at each line end, `^M` for a Windows `\r`. Useful
+  when a text match fails and you suspect line endings or tabs.
+
+PowerShell: `Get-Content <file>`. To append, use `Add-Content -Encoding utf8 <file> <text>`.
+To overwrite, use `Set-Content -Encoding utf8 <file> <text>`.
+
+*First used in 001; `>` added in 002; `-A` added in 003*
+
+### cp: copy files
+
+`cp [-r] <source> <dest>`. Copies a file, or a directory with `-r`.
+
+- `-r`: recurse, copying the directory and everything inside it.
+
+Example: `cp -r /mnt/d/Programming/zr-client-server /tmp/zr` (inside WSL)
+
+PowerShell: `Copy-Item -Recurse <source> <dest>`.
+
+*First used in 004*
+
+### rm: delete files
+
+`rm <file>`. Deletes a file permanently, with no recycle bin. ⚠️ Safe for temporary files
+you just created. Never combine `-rf` with a variable that might be empty.
+
+- `-r`: recurse into directories; `-f`: no prompts, no error if missing. ⚠️ `rm -rf`
+  deletes a whole tree with no confirmation. Safe only on a fixed, known path you just
+  created, like `rm -rf /tmp/zr` in WSL.
+
+Example: `rm "$TEMP/claude_edit2.py"`, `rm -rf /tmp/zr`
+
+PowerShell: `Remove-Item <file>`; ⚠️ `Remove-Item -Recurse -Force <dir>` for `rm -rf`.
+
+*First used in 002; `-rf` added in 004*
+
+### $TEMP: the temp directory
+
+`"$TEMP/<name>"`. In Git Bash on Windows, `$TEMP` points to the user's temp folder, a good
+place for throwaway scripts that must not end up in the repo.
+
+PowerShell: `$env:TEMP`.
+
+*First used in 002*
+
+### wc -l: count lines
+
+`wc -l <files>`. Prints the number of lines in each file and a total. Used to see how long
+a file is before reading it.
+
+Example: `wc -l client.py tests/test_server.py`
+
+PowerShell: `(Get-Content client.py | Measure-Object -Line).Lines`
+
+*First used in 006*
+
+### file: show a file's type and line endings
+
+`file <files>`. Guesses what a file contains. For text it also reports the line endings:
+`with CRLF line terminators` means Windows-style `\r\n`. With `core.autocrlf` git stores
+LF and checks out CRLF, so `git diff` stays clean either way.
+
+Example: `file server.py run.py`. In 006 it also caught a Python edit script that had
+rewritten a whole LF file as CRLF: on Windows, `open(p, "w")` in text mode writes every
+`\n` as `\r\n`, and `git diff --stat` then shows every line changed. Fix: write bytes
+(`open(p, "wb")`) or pass `newline="\n"`.
+
+PowerShell: no built-in equivalent. `(Get-Content -Raw server.py) -match "\r\n"` returns
+`True` for CRLF.
+
+*First used in 006*
+
+### < file / $?: redirect stdin, read the exit code
+
+`cmd < file` feeds a file to the command's standard input instead of the keyboard.
+`< /dev/null` gives it empty input, which simulates "no user at the keyboard". `$?` holds
+the exit code of the last command (`0` = success).
+
+Example: `python server.py < /dev/null; echo "exit=$?"`. The server must not wait for an
+admin password nobody can type. Gotcha: on Windows `/dev/null` maps to `NUL`, a character
+device that `isatty()` reports as a terminal, so the program still prompts and then gets
+end of file.
+
+PowerShell: `$null | python server.py; "exit=$LASTEXITCODE"` (`$LASTEXITCODE` holds a
+native program's exit code; `$?` is only `True`/`False`).
+
+*First used in 006*
+
+### head / tail: first or last lines
+
+`head -N` / `tail -N`. Shows the first or last N lines of a file or of piped output.
+
+PowerShell: `Get-Content <file> -TotalCount N` / `-Tail N`. For piped output, use
+`Select-Object -First N` / `-Last N`.
+
+*First used in 001*
+
+### grep: search text
+
+`grep [-n] [-v] [-E] [-A N] <pattern> [files]`. Prints lines that match a pattern.
+
+- `-n`: show line numbers.
+- `-v`: invert, i.e. print lines that do **not** match.
+- `-E`: extended regex, so `(a|b)` works without backslashes.
+- `-A N`: also print N lines after each match.
+- `-c`: print only the number of matching lines.
+- `-r`: search every file under a directory (recursive).
+- `-i`: ignore case.
+
+Example: `python -m unittest discover tests 2>&1 | grep -E "^(Ran|OK|FAIL|ERROR)"`.
+`2>&1` sends stderr, where unittest prints its summary, into the pipe.
+
+PowerShell: `Select-String -Pattern <p>` (`-NotMatch` for `-v`, `-Context 0,N` for `-A N`,
+`(… | Measure-Object).Count` for `-c`).
+
+*First used in 001; `-c` added in 003; `-r`, `-i` added in 006 (`grep -rniE "todo|next" README.md docs`)*
+
+### sed -n: print selected lines
+
+`sed -n '<from>,<to>p' <file>`. Prints only lines `from` to `to`. `-n` turns off the
+default "print every line", and `p` prints the selected range.
+
+Example: `sed -n 1,80p tests/test_server.py`
+
+PowerShell: `Get-Content tests/test_server.py | Select-Object -First 80`
+(or `-Skip 9 -First 11` for lines 10–20).
+
+*First used in 003*
+
+### awk: print lines between two patterns
+
+`awk '/<start>/{p=1} p{print NR": "$0} /<end>/{p=0}' <file>`. Prints every line from one
+that matches `<start>` to one that matches `<end>`. `p` is a flag variable, `NR` is the line
+number and `$0` the whole line.
+
+Example: `awk '/^<<<<<<< /{p=1} p{print NR": "$0} /^>>>>>>> /{p=0}' tests/test_server.py`
+(show only the conflict regions of a file)
+
+PowerShell: `Select-String -Pattern '^<<<<<<<' -Context 0,20 <file>` shows each match plus
+the next 20 lines (no exact range).
+
+*First used in 008*
+
+### cut: keep part of each line
+
+`cut -c<from>-<to>`. Keeps only the given character columns of each line; here, to shorten
+long output.
+
+Example: `grep -n "TCP on" README.md | cat -A | cut -c1-140`
+
+PowerShell: `… | ForEach-Object { $_.Substring(0, [Math]::Min(140, $_.Length)) }`.
+
+*First used in 003*
+
+### printf: print text with escapes
+
+`printf '<format>'`. Like `echo`, but `\n` reliably means a line break on every shell.
+Piping it into a program types those lines into its stdin.
+
+Example: `printf 'help\n' | python client.py`. The client reads `help`, then EOF, and
+exits.
+
+PowerShell: `"help" | python client.py`.
+
+*First used in 003*
+
+### background process: run without waiting
+
+`(cmd &)`. `&` starts the command in the background, and the subshell `( … )` detaches it
+from the current shell. Used to start a server, then talk to it from the same terminal. Stop
+it with a command it understands (here `stop`), or `kill <pid>`.
+
+Example: `(python -u server.py > "$TEMP/srv.log" 2>&1 &)`
+
+PowerShell: `Start-Process python -ArgumentList '-u','server.py' -NoNewWindow -RedirectStandardOutput "$env:TEMP\srv.log"`.
+
+*First used in 003*
+
+### for loop / sleep: retry and wait
+
+`for i in 1 2 3; do <cmd> && break; done` runs `<cmd>` up to three times and stops at the
+first success (`&&` runs `break` only if `<cmd>` succeeded). `sleep N` pauses for N
+seconds.
+
+Example: `for i in 1 2 3 4 5 6 7 8 9 10; do python -c "import socket;socket.create_connection(('127.0.0.1',65432)).close()" 2>/dev/null && break; done`
+(wait until the server accepts connections). `2>/dev/null` discards the error messages
+from failed attempts.
+
+PowerShell: `foreach ($i in 1..10) { python -c "…" 2>$null; if ($?) { break } }`,
+`Start-Sleep -Seconds 1`.
+
+*First used in 003*
 
 ### sed -i: edit a file in place
 
-`sed -i 's/<old>/<new>/' <file>`. Replaces the first match of `<old>` on each line and writes
-the result back to the file. ⚠️ No backup is kept, so run it on files under git, where
-`git diff` shows the change and `git restore <file>` undoes it.
+`sed -i 's/old/new/' <file>`. Replaces text in a file. ⚠️ It overwrites the file with no
+backup. It's safe on files tracked by git, because `git diff` shows the change and git can
+undo it.
 
 - `-i`: in place (GNU sed, as in Git Bash). macOS/BSD sed needs `-i ''`.
 - `s/.../.../`: substitute. Any delimiter works, e.g. `s|a|b|` when the text contains `/`.
+  Add `g` (`s/a/b/g`) to replace every match on a line, not just the first.
+- `;` joins several commands: `sed -i 's/^id: 001$/id: 007/; s/Step 8/Step 14/g' <file>`.
 
-Example: `sed -i 's/^SERVER_VERSION = "1.0.0"/SERVER_VERSION = "0.1.0-alpha"/' config.py`
+PowerShell: `(Get-Content f) -replace 'old','new' | Set-Content -Encoding utf8 f`.
 
-PowerShell: `(Get-Content config.py) -replace '"1\.0\.0"', '"0.1.0-alpha"' | Set-Content -Encoding utf8 config.py`
+Without `-i`, `sed 's/old/new/'` is a filter: it edits text flowing through a pipe and
+leaves files alone. Example: `git show HEAD:server.py | sed 's/old/new/' > server.py`
+(an old version with one line patched, to run new tests against it). ⚠️ `>` overwrites
+`server.py`, so back it up first (`cp server.py "$TEMP/server.py.new"`) and restore it
+afterwards. PowerShell: `(git show HEAD:server.py) -replace 'old','new' | Set-Content
+-Encoding utf8 server.py`.
 
-*First used in 001*
+*First used in 001; filter form added in 005; `g` and `;` added in 008*
 
-### grep: search text for a pattern
+### heredoc: multi-line input to a command
 
-`grep [-n] [-E] <pattern> [<file>...]`. Prints the lines that match.
+`cmd <<'EOF' … EOF`. Feeds the lines up to `EOF` to the command's stdin. Quoting `'EOF'`
+stops the shell from expanding `$vars` inside.
 
-- `-n`: prefix each line with its line number.
-- `-E`: extended regex, so `|` and `( )` work without backslashes.
-
-Example: `grep -n "test_version_is_semver" tests/test_server.py`;
-`python -m unittest discover tests 2>&1 | grep -E "^(Ran|OK|FAIL|ERROR)"` keeps only the test
-summary (`2>&1` sends stderr, where unittest writes, into the pipe).
-
-PowerShell: `Select-String -Pattern "test_version_is_semver" tests/test_server.py`
-
-*First used in 001*
-
-### cat / head / tail: print files
-
-`cat <file>...` prints whole files. `head -n N` / `tail -n N` print the first or last N lines;
-piping into `| head -70` trims long output.
-
-Example: `cat docs/concepts/README.md`, `tail -n 2 docs/dev-journal/README.md`
-
-PowerShell: `Get-Content <file>`, `Get-Content <file> -TotalCount N`, `Get-Content <file> -Tail N`
+PowerShell: pipe a here-string `@' … '@` into the command.
 
 *First used in 001*
-

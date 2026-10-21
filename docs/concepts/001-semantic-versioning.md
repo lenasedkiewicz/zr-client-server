@@ -42,7 +42,7 @@ as-is unless a serious bug turns up.
   `{"version": "0.1.0-alpha", "created": "2026-10-01"}`.
 - `tests/test_server.py`: `test_version_is_semver` checks the string against the official
   SemVer regex.
-- `PLAN.md`, Step 8: the bumping rules for this project.
+- `PLAN.md`, Step 14: the bumping rules for this project.
 
 The version had been `1.0.0`. That claimed a stable API for a protocol that's still changing
 (`feature/admin` adds commands and TLS), so it was moved back to `0.1.0-alpha`.

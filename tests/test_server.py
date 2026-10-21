@@ -1,14 +1,29 @@
 """End-to-end tests for the server."""
 
+import json
+import os
 import re
 import socket
+import ssl
+import stat
+import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
-from config import ENCODING, SERVER_CREATED, SERVER_VERSION
+from client import make_client_context
+from config import ENCODING, HOST, ROLE_USER, SERVER_CREATED, SERVER_VERSION, USERS_FILE_MODE
 from protocol import receive_message, send_message
-from server import Server
+from server import Server, make_server_context
+from throttle import LoginThrottle
+from users import UserStore
+
+# Test-only certificates (see tests/certs/README.md) - never used outside the tests.
+CERTS_DIR = os.path.join(os.path.dirname(__file__), "certs")
+TEST_CERT = os.path.join(CERTS_DIR, "test-server.crt")
+TEST_KEY = os.path.join(CERTS_DIR, "test-server.key")
+OTHER_CERT = os.path.join(CERTS_DIR, "other.crt")
 
 # Official SemVer 2.0.0 regex, see https://semver.org/ (FAQ: "suggested regular expression").
 SEMVER = re.compile(
@@ -20,24 +35,67 @@ SEMVER = re.compile(
 
 class ServerTest(unittest.TestCase):
     def setUp(self):
-        self.server = Server(port=0)  # 0 = let the OS pick a free port
+        # Each test gets its own users file; few iterations keep the tests fast.
+        self.tmp_dir = tempfile.TemporaryDirectory()
+        self.users_path = os.path.join(self.tmp_dir.name, "users.json")
+        users = UserStore(self.users_path, iterations=1_000)
+        # Fake clock: tests move self.now forward instead of sleeping through a lockout.
+        self.now = 0.0
+        self.throttle = LoginThrottle(max_failures=3, lockout_seconds=60, clock=lambda: self.now)
+        self.server = Server(  # port 0 = let the OS pick a free port
+            port=0,
+            users=users,
+            tls_context=make_server_context(TEST_CERT, TEST_KEY),
+            login_throttle=self.throttle,
+        )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
-        self.sock = socket.create_connection(self.server.address, timeout=5)
-        self.sock_file = self.sock.makefile("r", encoding=ENCODING)
+        self.connect()
 
     def tearDown(self):
         if self.thread.is_alive():
+            # stop requires a login; if already logged in, login just errors and stop still works.
+            self.login_as("teardown")
             self.request("stop")
         self.sock_file.close()
         self.sock.close()
         self.thread.join(timeout=5)
+        self.tmp_dir.cleanup()
 
-    def request(self, command):
-        send_message(self.sock, {"command": command})
+    def connect(self, cafile=TEST_CERT):
+        raw_sock = socket.create_connection(self.server.address, timeout=5)
+        try:
+            self.sock = make_client_context(cafile).wrap_socket(raw_sock, server_hostname=HOST)
+        except ssl.SSLError:
+            raw_sock.close()
+            raise
+        self.sock_file = self.sock.makefile("r", encoding=ENCODING)
+
+    def disconnect(self):
+        """Close the current client, so the single-client server accepts the next one."""
+        self.sock_file.close()
+        self.sock.close()
+
+    def request(self, command, args=None):
+        message = {"command": command}
+        if args is not None:
+            message["args"] = args
+        send_message(self.sock, message)
         return receive_message(self.sock_file)
 
+    def register(self, username="alice", password="secret123"):
+        return self.request("register", {"username": username, "password": password})
+
+    def login(self, username="alice", password="secret123"):
+        return self.request("login", {"username": username, "password": password})
+
+    def login_as(self, username="alice", password="secret123"):
+        """Register (if needed) and log in, so protected commands can be used."""
+        self.register(username, password)
+        return self.login(username, password)
+
     def test_uptime(self):
+        self.login_as()
         first = self.request("uptime")
         self.assertEqual(first["status"], "ok")
         self.assertEqual(first["command"], "uptime")
@@ -47,17 +105,28 @@ class ServerTest(unittest.TestCase):
         self.assertGreater(second["data"]["uptime_seconds"], first["data"]["uptime_seconds"])
 
     def test_info(self):
+        self.login_as()
         response = self.request("info")
         self.assertEqual(response["data"], {"version": SERVER_VERSION, "created": SERVER_CREATED})
 
     def test_version_is_semver(self):
         self.assertRegex(SERVER_VERSION, SEMVER)
 
-    def test_help_lists_all_commands(self):
+    def test_help_logged_in_lists_all_commands(self):
+        self.login_as()
         response = self.request("help")
-        self.assertEqual(set(response["data"]), {"uptime", "info", "help", "stop"})
+        self.assertEqual(
+            set(response["data"]),
+            {"register", "login", "logout", "uptime", "info", "help", "stop"},
+        )
+
+    def test_help_logged_out_lists_only_auth_commands(self):
+        response = self.request("help")
+        self.assertEqual(response["status"], "ok")
+        self.assertEqual(set(response["data"]), {"register", "login", "help"})
 
     def test_unknown_command(self):
+        self.login_as()
         response = self.request("foo")
         self.assertEqual(response["status"], "error")
         self.assertIn("foo", response["message"])
@@ -65,17 +134,196 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.request("info")["status"], "ok")
 
     def test_invalid_json(self):
+        self.login_as()
         self.sock.sendall(b"not json\n")
         response = receive_message(self.sock_file)
         self.assertEqual(response["status"], "error")
         self.assertEqual(self.request("info")["status"], "ok")
 
+    def test_register(self):
+        response = self.register()
+        self.assertEqual(response["status"], "ok")
+        self.assertEqual(response["command"], "register")
+
+    def test_register_stores_hash_not_password(self):
+        self.register(password="secret123")
+        with open(self.users_path, encoding=ENCODING) as f:
+            content = f.read()
+        self.assertNotIn("secret123", content)
+        record = json.loads(content)["alice"]
+        self.assertEqual(set(record), {"salt", "hash", "iterations", "role"})
+        self.assertEqual(record["role"], ROLE_USER)
+        self.assertTrue(self.server.users.verify_password("alice", "secret123"))
+        self.assertFalse(self.server.users.verify_password("alice", "wrong-pass"))
+
+    def test_register_same_password_gives_different_hashes(self):
+        self.register("alice", "secret123")
+        self.register("bob", "secret123")
+        users = self.server.users.users
+        self.assertNotEqual(users["alice"]["hash"], users["bob"]["hash"])
+
+    def test_register_duplicate_username(self):
+        self.register()
+        response = self.register()
+        self.assertEqual(response["status"], "error")
+        self.assertIn("already exists", response["message"])
+
+    def test_register_invalid_input(self):
+        for args in (
+            {"username": "al", "password": "secret123"},  # username too short
+            {"username": "bad name", "password": "secret123"},  # space not allowed
+            {"username": "alice", "password": "short"},  # password too short
+            {},  # nothing given
+        ):
+            with self.subTest(args=args):
+                self.assertEqual(self.request("register", args)["status"], "error")
+
+    def test_args_must_be_object(self):
+        response = self.request("info", args=["not", "an", "object"])
+        self.assertEqual(response["status"], "error")
+
+    def test_users_persist_across_restarts(self):
+        self.register()
+        reloaded = UserStore(self.users_path, iterations=1_000)
+        self.assertTrue(reloaded.verify_password("alice", "secret123"))
+
+    @unittest.skipIf(os.name == "nt", "Windows uses ACLs; the mode only sets the read-only flag")
+    def test_users_file_is_owner_only(self):
+        self.register()
+        mode = stat.S_IMODE(os.stat(self.users_path).st_mode)
+        self.assertEqual(mode, USERS_FILE_MODE)
+
+    def test_commands_require_login(self):
+        for command in ("uptime", "info", "stop", "logout"):
+            with self.subTest(command=command):
+                response = self.request(command)
+                self.assertEqual(response["status"], "error")
+                self.assertIn("Login required", response["message"])
+        self.assertTrue(self.thread.is_alive())  # stop was rejected
+
+    def test_login(self):
+        self.register()
+        response = self.login()
+        self.assertEqual(response["status"], "ok")
+        self.assertEqual(response["data"]["username"], "alice")
+        self.assertEqual(self.request("uptime")["status"], "ok")
+
+    def test_login_wrong_password_and_unknown_user_look_the_same(self):
+        self.register()
+        wrong_password = self.login("alice", "wrong-pass")
+        unknown_user = self.login("nobody", "secret123")
+        self.assertEqual(wrong_password["status"], "error")
+        self.assertEqual(wrong_password["message"], unknown_user["message"])
+        self.assertEqual(self.request("uptime")["status"], "error")
+
+    def test_login_invalid_args(self):
+        for args in ({}, {"username": ["alice"], "password": "secret123"}):
+            with self.subTest(args=args):
+                self.assertEqual(self.request("login", args)["status"], "error")
+
+    def test_login_twice(self):
+        self.login_as()
+        response = self.login()
+        self.assertEqual(response["status"], "error")
+        self.assertIn("Already logged in", response["message"])
+
+    def test_logout(self):
+        self.login_as()
+        self.assertEqual(self.request("logout")["status"], "ok")
+        self.assertIn("Login required", self.request("uptime")["message"])
+        self.assertEqual(set(self.request("help")["data"]), {"register", "login", "help"})
+
+    def test_new_connection_starts_logged_out(self):
+        self.login_as()
+        self.disconnect()
+        self.connect()  # the server takes the next client after the first disconnects
+        self.assertIn("Login required", self.request("uptime")["message"])
+
+    def fail_logins(self, username="alice", times=3):
+        for _ in range(times):
+            self.assertIn("Invalid", self.login(username, "wrong-pass")["message"])
+
+    def test_login_locked_out_after_repeated_failures(self):
+        self.register()
+        self.fail_logins()
+        response = self.login()  # correct password, but locked out
+        self.assertEqual(response["status"], "error")
+        self.assertIn("Too many failed logins", response["message"])
+        self.assertIn("Login required", self.request("uptime")["message"])
+
+    def test_lockout_survives_reconnect(self):
+        self.register()
+        self.fail_logins()
+        self.disconnect()
+        self.connect()
+        self.assertIn("Too many failed logins", self.login()["message"])
+
+    def test_lockout_is_per_username(self):
+        self.register()
+        self.register("bob")
+        self.fail_logins("alice")
+        self.assertEqual(self.login("bob")["status"], "ok")
+
+    def test_lockout_expires(self):
+        self.register()
+        self.fail_logins()
+        self.now += 59
+        self.assertIn("try again in 2 s", self.login()["message"])
+        self.now += 1
+        self.assertEqual(self.login()["status"], "ok")
+
+    def test_successful_login_resets_failures(self):
+        self.register()
+        self.fail_logins(times=2)
+        self.login()
+        self.request("logout")
+        self.fail_logins(times=2)
+        self.assertEqual(self.login()["status"], "ok")
+
+    def test_unknown_username_is_locked_out_like_existing_one(self):
+        self.register()
+        self.fail_logins("alice")
+        self.fail_logins("nobody")
+        self.assertEqual(self.login("alice")["message"], self.login("nobody")["message"])
+
     def test_stop(self):
+        self.login_as()
         response = self.request("stop")
         self.assertEqual(response["status"], "ok")
         self.assertEqual(response["command"], "stop")
         self.thread.join(timeout=5)
         self.assertFalse(self.thread.is_alive())
+
+    def assert_server_still_serves(self):
+        self.connect()
+        self.assertEqual(self.login_as()["status"], "ok")
+
+    def test_plain_tcp_client_gets_no_reply(self):
+        self.disconnect()
+        with socket.create_connection(self.server.address, timeout=5) as plain:
+            plain.sendall(b'{"command": "help"}\n')
+            received = b""
+            try:
+                while chunk := plain.recv(4096):
+                    received += chunk
+            except (ConnectionError, socket.timeout):
+                pass  # the server drops the connection after the failed handshake
+        self.assertNotIn(b"status", received)  # at most a binary TLS alert, never JSON
+        self.assert_server_still_serves()
+
+    def test_client_trusting_other_certificate_rejects_server(self):
+        self.disconnect()
+        with self.assertRaises(ssl.SSLCertVerificationError):
+            self.connect(cafile=OTHER_CERT)
+        self.assert_server_still_serves()
+
+    def test_silent_client_does_not_block_server(self):
+        self.disconnect()
+        with mock.patch("server.TLS_HANDSHAKE_TIMEOUT", 0.2):
+            silent = socket.create_connection(self.server.address, timeout=5)
+            # Sends nothing; after the handshake timeout the server moves on to the next client.
+            self.assert_server_still_serves()
+        silent.close()
 
 
 if __name__ == "__main__":

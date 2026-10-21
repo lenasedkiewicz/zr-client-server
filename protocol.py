@@ -2,6 +2,9 @@
 
 Every message is a single JSON object serialized on one line and terminated with "\\n".
 This solves TCP message framing: the receiver simply reads one line per message.
+
+Requests look like ``{"command": "<name>"}``, with an optional ``"args"`` object for
+commands that need input, e.g. ``{"command": "register", "args": {"username": ...}}``.
 """
 
 import json

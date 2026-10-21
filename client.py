@@ -1,32 +1,86 @@
-"""Interactive TCP client: sends commands to the server and prints the JSON replies."""
+"""Interactive TLS client: sends commands to the server and prints the JSON replies."""
 
+import getpass
 import json
 import socket
+import ssl
 
-from config import ENCODING, HOST, PORT
+from config import ENCODING, HOST, PORT, TLS_CERT_FILE
 from protocol import receive_message, send_message
+
+
+def build_request(line):
+    """Turn a typed line into a request dict, or return None if it is incomplete.
+
+    Commands that need a password ask for it with ``getpass``, so it is not echoed.
+    """
+    name, *params = line.split()
+    if name.lower() == "register":
+        if len(params) != 1:
+            print("Usage: register <username>")
+            return None
+        password = getpass.getpass("Password: ")
+        if getpass.getpass("Repeat password: ") != password:
+            print("Passwords do not match")
+            return None
+        return {"command": "register", "args": {"username": params[0], "password": password}}
+    if name.lower() == "login":
+        if len(params) != 1:
+            print("Usage: login <username>")
+            return None
+        password = getpass.getpass("Password: ")
+        return {"command": "login", "args": {"username": params[0], "password": password}}
+    return {"command": line}
+
+
+def make_client_context(cafile=TLS_CERT_FILE):
+    """Trust only our own certificate (pinning); certificate and hostname checks stay on."""
+    return ssl.create_default_context(cafile=cafile)
 
 
 def main():
     try:
-        sock = socket.create_connection((HOST, PORT))
+        context = make_client_context()
+    except FileNotFoundError:
+        print(f"TLS certificate not found ({TLS_CERT_FILE}) - see README 'Setup'")
+        return
+    try:
+        raw_sock = socket.create_connection((HOST, PORT))
     except ConnectionRefusedError:
         print(f"Cannot connect to {HOST}:{PORT} - is the server running?")
         return
+    try:
+        sock = context.wrap_socket(raw_sock, server_hostname=HOST)
+    except ssl.SSLCertVerificationError as error:
+        raw_sock.close()
+        print(f"Server certificate rejected: {error.verify_message}")
+        return
+    except (ssl.SSLError, OSError) as error:
+        raw_sock.close()
+        print(f"TLS handshake failed: {error}")
+        return
 
     with sock, sock.makefile("r", encoding=ENCODING) as sock_file:
-        print(f"Connected to {HOST}:{PORT}. Type 'help' for the list of commands.")
+        print(f"Connected to {HOST}:{PORT} over TLS. Type 'help' for the list of commands.")
+        user = None  # shown in the prompt; mirrors the server-side session
         while True:
             try:
-                command = input("> ").strip()
+                command = input(f"{user}> " if user else "> ").strip()
             except (EOFError, KeyboardInterrupt):
                 print("\nDisconnecting")
                 return
             if not command:
                 continue
+            try:
+                request = build_request(command)
+            except (EOFError, KeyboardInterrupt):
+                print("\nCancelled")
+                continue
+            if request is None:
+                continue
 
             try:
-                send_message(sock, {"command": command})
+                send_message(sock, request)
                 response = receive_message(sock_file)
             except (ConnectionError, OSError):
                 response = None
@@ -35,7 +89,13 @@ def main():
                 return
 
             print(json.dumps(response, indent=2))
-            if response.get("status") == "ok" and response.get("command") == "stop":
+            if response.get("status") != "ok":
+                continue
+            if response.get("command") == "login":
+                user = response["data"]["username"]
+            elif response.get("command") == "logout":
+                user = None
+            elif response.get("command") == "stop":
                 print("Server stopped - exiting client")
                 return
 

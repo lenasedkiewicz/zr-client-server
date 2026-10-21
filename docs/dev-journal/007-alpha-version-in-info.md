@@ -1,5 +1,5 @@
 ---
-id: 001
+id: 007
 title: Report an alpha SemVer version in info
 commit: "feat: report alpha version 0.1.0-alpha in info"
 step: 8 — versioning
@@ -21,11 +21,11 @@ didn't change: `cmd_info` reads the constant, so `info` now replies
 We also added `test_version_is_semver` (`tests/test_server.py:53`). It checks the constant
 against the official SemVer 2.0.0 regex (`tests/test_server.py:14`), so a malformed version
 such as `0.1-alpha` or `01.0.0` fails the test suite instead of reaching clients. `PLAN.md`
-gets a new Step 8 with the bumping rules, and Step 4's `info` example now shows the new value.
+gets a new Step 14 with the bumping rules, and Step 4's `info` example now shows the new value.
 
 ## How it fits
 
-- **Plan:** delivers Step 8 (versioning). It gives later work a rule to follow: when
+- **Plan:** delivers Step 14 (versioning). It gives later work a rule to follow: when
   `feature/admin` lands with new commands, that's a `MINOR` bump (`0.2.0-alpha`).
 - **Practice:**
   - *Single source of truth.* One constant holds the version, and both the server and the
@@ -45,7 +45,7 @@ gets a new Step 8 with the bumping rules, and Step 4's `info` example now shows 
 - `sed -i 's/.../.../' config.py`, `sed -i '...' PLAN.md`: replace the version string in place.
 - `git diff --stat`: check that only the intended files changed.
 - `python - <<'EOF' ... EOF`: run a short Python script from a heredoc to insert the test
-  and Step 8.
+  and Step 14.
 - `git diff tests PLAN.md | head -70`: review the inserted lines.
 - `python -m unittest discover tests 2>&1 | grep -E "^(Ran|OK|FAIL|ERROR)"`: run the
   suite and show only the summary (7 tests, OK).
