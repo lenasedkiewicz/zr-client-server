@@ -141,15 +141,23 @@ PowerShell: not needed (no path conversion). To set a variable for one command:
 
 ### git diff: show unstaged changes
 
-`git diff [--stat] [<path>]`. Shows what changed in the working tree since the last
-commit or `git add`.
+`git diff [--stat] [<commit> [<commit>]] [-- <path>]`. With no commit, shows what changed in
+the working tree since the last `git add`; with one, compares the working tree with that
+commit; with two, compares the two commits.
 
 - `--stat`: show only a per-file summary of added and removed lines.
-- `<path>`: limit the diff to one file.
+- `-- <path>`: limit the diff to one file; `--` separates revisions from file names.
 
-Example: `git diff --stat`, `git diff server.py`
+Example: `git diff --stat`, `git diff server.py`, `git diff feature/admin -- .gitignore` (no
+output means the file is identical on both sides, so a merge will not conflict there)
 
-*First used in 001*
+Git Bash: a revision containing `/` followed by `:path` (e.g. `feature/admin:.gitignore`) can
+be mangled by MSYS path conversion; the `<commit> -- <path>` form avoids it.
+
+During a merge, `git diff` with no arguments shows only the conflicted files, in a
+"combined" format with two `+`/`-` columns (one per parent).
+
+*First used in 001; commit and `--` forms added in 007; merge view added in 008*
 
 ### git add: stage changes
 
@@ -185,15 +193,130 @@ PowerShell: the same, but `>` writes UTF-16 in Windows PowerShell 5.1; use
 
 ### git log: list commits
 
-`git log --oneline`. Lists commits, newest first.
+`git log --oneline [<a>..<b>]`. Lists commits, newest first.
 
 - `--oneline`: one line per commit, with the short hash and the subject.
+- `<a>..<b>`: only commits reachable from `<b>` but not from `<a>`, i.e. what `<b>` has that
+  `<a>` lacks.
 
-Example: `git log --oneline | head -15`
+Example: `git log --oneline | head -15`; `git log --oneline origin/master..origin/feature/admin`
+(the PR's own commits)
 
 PowerShell: the same; use `| Select-Object -First 15` instead of `head`.
 
-*First used in 005*
+*First used in 005; `a..b` added in 008*
+
+### git branch --show-current: print the current branch
+
+`git branch --show-current`. Prints the name of the checked-out branch (nothing on a
+detached HEAD). Without the flag, `git branch` lists local branches with `*` on the current
+one, and `-a` adds the remote-tracking ones (`remotes/origin/...`).
+
+Example: checking that a change goes onto `master` before editing; `git branch -a` after a
+fetch to see `origin/feature/admin`.
+
+*First used in 007; `-a` added in 008*
+
+### git fetch: download new commits from the remote
+
+`git fetch --all --prune`. Downloads commits and branches from the remote into the
+remote-tracking branches (`origin/master`, ...) without touching your own branches or files.
+
+- `--all`: fetch every configured remote, not just `origin`.
+- `--prune`: delete remote-tracking branches whose branch was deleted on the remote.
+
+Example: `git fetch --all --prune` before merging, so `origin/master` is current.
+
+*First used in 008*
+
+### git checkout: switch branches
+
+`git checkout <branch>`. Switches the working tree to another branch. Git refuses if
+uncommitted changes would be overwritten. Newer git also has `git switch <branch>`, which
+does only this.
+
+Example: `git checkout feature/admin`
+
+*First used in 008*
+
+### git merge: join another branch into the current one
+
+`git merge [--no-edit] <branch>`. Brings the other branch's commits into the current branch
+and records a merge commit with two parents. On conflicts it stops: fix each file, `git add`
+it, then `git commit` finishes the merge.
+
+- `--no-edit`: accept git's default message instead of opening an editor.
+- `--abort`: give up and return to the state before the merge. ⚠️ Discards the conflict
+  resolutions you have made so far; safe when you want to start the merge over.
+
+Conflict markers in a file: `<<<<<<< HEAD` (your branch), `=======`, `>>>>>>> <branch>`
+(theirs). Remove all three and keep the right mix of both sides.
+
+Example: `git merge origin/master --no-edit` (on `feature/admin`, to update PR #1)
+
+*First used in 008*
+
+### git merge-base: find the common ancestor
+
+`git merge-base <a> <b>`. Prints the commit where two branches split. A merge compares both
+sides against this commit.
+
+Example: `git merge-base origin/master origin/feature/admin` → `3eafafb…`
+
+*First used in 008*
+
+### git mv: rename a tracked file
+
+`git mv <old> <new>`. Renames the file and stages the rename in one step.
+
+Example: `git mv docs/dev-journal/001-alpha-version-in-info.md docs/dev-journal/007-alpha-version-in-info.md`
+
+PowerShell: the same command.
+
+*First used in 008*
+
+### git push: upload commits to the remote
+
+`git push [<remote> <branch>]`. Sends your new commits to the remote branch. With no
+arguments it pushes the current branch to its upstream. A plain push only adds commits;
+⚠️ `--force` overwrites the remote branch and is only safe on a branch nobody else uses
+(it is what a rebase of a pushed branch would need).
+
+Example: `git push origin feature/admin` (updates PR #1)
+
+*First used in 008*
+
+### gh pr view: show a pull request
+
+`gh pr view <number> [--json <fields>]`. GitHub CLI: prints a pull request's details.
+
+- `--json headRefName,baseRefName,mergeable,title`: print only those fields as JSON;
+  `mergeable` is `CONFLICTING` when GitHub cannot merge it automatically.
+
+Example: `gh pr view 1 --json headRefName,baseRefName,mergeable,title`
+
+*First used in 008*
+
+### git ls-tree: list files in a commit
+
+`git ls-tree [--name-only] <rev> [<path>]`. Lists the files and folders stored in a commit or
+branch, without checking it out.
+
+- `--name-only`: print just the paths, not the mode, type and hash.
+
+Example: `git ls-tree --name-only origin/feature/admin docs/concepts/`
+
+*First used in 008*
+
+### git merge-tree: preview a merge without touching files
+
+`git merge-tree --write-tree --name-only <branch1> <branch2>`. Performs the merge in memory
+and prints the resulting tree plus the conflicted files, leaving the working tree alone.
+Needs git 2.38+. Older versions only know the deprecated `git merge-tree <base> <b1> <b2>`
+form and fail with `usage:` (exit 129), as here; then just merge and `git merge --abort` if
+needed.
+
+*First used in 008*
 
 ### git status: show the working tree state
 
@@ -202,10 +325,15 @@ PowerShell: the same; use `| Select-Object -First 15` instead of `head`.
 - `--short`: two-letter codes per file (`M` modified, `??` untracked).
 - `--ignored`: also list ignored files (`!!`), e.g. to check that `server.key` and
   `users.json` really are git-ignored.
+- `-sb`: short format plus a first line with the branch and how far it is ahead of or
+  behind its upstream (`## feature/admin...origin/feature/admin`).
+
+During a merge, `UU` marks a file with unresolved conflicts, `A ` a file added by the
+other branch.
 
 Example: `git status --short --ignored`
 
-*First used in 005*
+*First used in 005; `-sb` and merge codes added in 008*
 
 ## WSL (Linux on Windows)
 
@@ -407,6 +535,20 @@ PowerShell: `Get-Content tests/test_server.py | Select-Object -First 80`
 
 *First used in 003*
 
+### awk: print lines between two patterns
+
+`awk '/<start>/{p=1} p{print NR": "$0} /<end>/{p=0}' <file>`. Prints every line from one
+that matches `<start>` to one that matches `<end>`. `p` is a flag variable, `NR` is the line
+number and `$0` the whole line.
+
+Example: `awk '/^<<<<<<< /{p=1} p{print NR": "$0} /^>>>>>>> /{p=0}' tests/test_server.py`
+(show only the conflict regions of a file)
+
+PowerShell: `Select-String -Pattern '^<<<<<<<' -Context 0,20 <file>` shows each match plus
+the next 20 lines (no exact range).
+
+*First used in 008*
+
 ### cut: keep part of each line
 
 `cut -c<from>-<to>`. Keeps only the given character columns of each line; here, to shorten
@@ -463,6 +605,11 @@ PowerShell: `foreach ($i in 1..10) { python -c "…" 2>$null; if ($?) { break } 
 backup. It's safe on files tracked by git, because `git diff` shows the change and git can
 undo it.
 
+- `-i`: in place (GNU sed, as in Git Bash). macOS/BSD sed needs `-i ''`.
+- `s/.../.../`: substitute. Any delimiter works, e.g. `s|a|b|` when the text contains `/`.
+  Add `g` (`s/a/b/g`) to replace every match on a line, not just the first.
+- `;` joins several commands: `sed -i 's/^id: 001$/id: 007/; s/Step 8/Step 14/g' <file>`.
+
 PowerShell: `(Get-Content f) -replace 'old','new' | Set-Content -Encoding utf8 f`.
 
 Without `-i`, `sed 's/old/new/'` is a filter: it edits text flowing through a pipe and
@@ -472,7 +619,7 @@ leaves files alone. Example: `git show HEAD:server.py | sed 's/old/new/' > serve
 afterwards. PowerShell: `(git show HEAD:server.py) -replace 'old','new' | Set-Content
 -Encoding utf8 server.py`.
 
-*First used in 001; filter form added in 005*
+*First used in 001; filter form added in 005; `g` and `;` added in 008*
 
 ### heredoc: multi-line input to a command
 

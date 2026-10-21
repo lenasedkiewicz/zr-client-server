@@ -60,7 +60,7 @@ zr-client-server/
   this same dict, so it always lists exactly the implemented commands.
 - Handlers:
   - `uptime` → `{"uptime_seconds": 12.34, "uptime": "0:00:12"}`
-  - `info` → `{"version": "1.0.0", "created": "2026-10-01"}`
+  - `info` → `{"version": "0.1.0-alpha", "created": "2026-10-01"}`
   - `help` → `{"uptime": "...", "info": "...", "help": "...", "stop": "..."}`
   - `stop` → sends `{"status":"ok","command":"stop","data":{"message":"Server stopping"}}`,
     then closes the connection and the listening socket and exits the loop.
@@ -269,6 +269,14 @@ of authority, like Django's `createsuperuser` or Jenkins' first-run setup.
   server runs is lost on the server's next save; the role is stored but not used yet.
 - **Next:** `promote <username>` and admin-only commands (e.g. `stop`).
 - **Commit:** `feat: create an admin account on first start`.
+
+## Step 14 — versioning (`config.py`)
+- Adopt Semantic Versioning 2.0.0 (`MAJOR.MINOR.PATCH[-pre-release]`). Start at
+  `0.1.0-alpha`: `0.x` = initial development, `-alpha` = unstable pre-release.
+- `SERVER_VERSION` in `config.py` stays the single source of truth; `info` reports it.
+  Bump it with every release (new command → `MINOR`, bug fix → `PATCH`, breaking protocol
+  change → `MAJOR`; before `1.0.0` breaking changes may bump `MINOR`).
+- Test: `SERVER_VERSION` matches the official SemVer regex.
 
 ## Verification
 1. `python server.py` in terminal 1, `python client.py` in terminal 2.

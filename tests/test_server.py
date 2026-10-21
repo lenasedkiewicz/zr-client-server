@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import socket
 import ssl
 import stat
@@ -23,6 +24,13 @@ CERTS_DIR = os.path.join(os.path.dirname(__file__), "certs")
 TEST_CERT = os.path.join(CERTS_DIR, "test-server.crt")
 TEST_KEY = os.path.join(CERTS_DIR, "test-server.key")
 OTHER_CERT = os.path.join(CERTS_DIR, "other.crt")
+
+# Official SemVer 2.0.0 regex, see https://semver.org/ (FAQ: "suggested regular expression").
+SEMVER = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?"
+    r"(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
+)
 
 
 class ServerTest(unittest.TestCase):
@@ -100,6 +108,9 @@ class ServerTest(unittest.TestCase):
         self.login_as()
         response = self.request("info")
         self.assertEqual(response["data"], {"version": SERVER_VERSION, "created": SERVER_CREATED})
+
+    def test_version_is_semver(self):
+        self.assertRegex(SERVER_VERSION, SEMVER)
 
     def test_help_logged_in_lists_all_commands(self):
         self.login_as()
