@@ -229,15 +229,32 @@ Example: `git fetch --all --prune` before merging, so `origin/master` is current
 
 *First used in 008*
 
+### git pull: fetch and update the current branch
+
+`git pull [--ff-only]`. Runs `git fetch`, then joins the remote branch into the current
+one. Plain `git pull` may create a merge commit (or rebase, depending on config) when
+your branch and the remote have diverged.
+
+- `--ff-only`: only fast-forward, i.e. move your branch pointer forward to the remote's
+  commit. If the branches have diverged, git refuses and changes nothing, so a pull never
+  creates a surprise merge commit.
+
+Example: `git pull --ff-only` on `master` before branching for a new fix batch.
+
+*First used in the step 16 plan commit (`docs:` commit, no journal entry)*
+
 ### git checkout: switch branches
 
 `git checkout <branch>`. Switches the working tree to another branch. Git refuses if
 uncommitted changes would be overwritten. Newer git also has `git switch <branch>`, which
 does only this.
 
-Example: `git checkout feature/admin`
+- `-b <new-branch>`: create the branch at the current commit and switch to it
+  (`git switch -c <new-branch>` in newer git).
 
-*First used in 008*
+Example: `git checkout feature/admin`; `git checkout -b fix/server-survives-bad-client`
+
+*First used in 008; `-b` added in the step 16 plan commit*
 
 ### git merge: join another branch into the current one
 

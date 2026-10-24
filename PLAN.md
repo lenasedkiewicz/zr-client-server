@@ -312,6 +312,25 @@ a false positive each need a different response.
 - **Commit:** `chore: resolve secret-scanner findings` (plus a dev-journal entry on secret
   triage and history rewriting).
 
+## Step 16 — address the 2026-10-21 mentoring code review
+The review (master @ `66cac5d`) found two critical bugs: one failed send, or one line of
+bad bytes, stops the whole server. It also found several important issues (no message
+size limit or idle timeout, `null` read as end of stream, wall-clock uptime,
+`SO_REUSEADDR` on Windows, the launcher leaving its server running) and recommended
+clean-ups. Full plan: [`docs/plans/001-code-review-2026-10-21.md`](docs/plans/001-code-review-2026-10-21.md).
+
+- **Shape:** 9 batches of 2–3 tasks. One batch = one branch = one PR; one task = one
+  commit through `learn-by-commit`. Critical fixes come first (batch 1), then test
+  foundations (batch 2).
+- **Every server fix** adds a test that fails first, and ends by checking that a new client
+  still gets an answer.
+- **Out of scope:** changing the concurrency model (one client at a time stays; limits and
+  timeouts are added instead). YAGNI.
+- **Also planned:** repo-specific checklist skills (`error-handling-review`,
+  `negative-tests`, `trust-boundary-check`, `resource-lifecycle`, `logging-conventions`,
+  `cross-platform-check`, `docs-drift-check`), built after the batch each one encodes.
+- **Commit:** `docs: plan fixes for the 2026-10-21 code review (step 16)`.
+
 ## Verification
 1. `python server.py` in terminal 1, `python client.py` in terminal 2.
 2. Type `help`, `info`, `uptime` (twice — value grows), `foo` (error) → check JSON output.
