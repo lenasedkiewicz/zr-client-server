@@ -531,6 +531,9 @@ PowerShell: `Get-Content <file> -TotalCount N` / `-Tail N`. For piped output, us
 - `-c`: print only the number of matching lines.
 - `-r`: search every file under a directory (recursive).
 - `-i`: ignore case.
+- `-a`: treat binary input as text. Without it, grep prints only `Binary file (standard input)
+  matches` when the input has non-UTF-8 bytes (e.g. Windows error messages in a local
+  code page).
 
 Example: `python -m unittest discover tests 2>&1 | grep -E "^(Ran|OK|FAIL|ERROR)"`.
 `2>&1` sends stderr, where unittest prints its summary, into the pipe.
@@ -538,7 +541,20 @@ Example: `python -m unittest discover tests 2>&1 | grep -E "^(Ran|OK|FAIL|ERROR)
 PowerShell: `Select-String -Pattern <p>` (`-NotMatch` for `-v`, `-Context 0,N` for `-A N`,
 `(… | Measure-Object).Count` for `-c`).
 
-*First used in 001; `-c` added in 003; `-r`, `-i` added in 006 (`grep -rniE "todo|next" README.md docs`)*
+*First used in 001; `-c` added in 003; `-r`, `-i` added in 006 (`grep -rniE "todo|next" README.md docs`); `-a` added in 009*
+
+### tr: translate characters
+
+`tr <set1> <set2>`. Replaces each character of `set1` in stdin with the matching one in
+`set2`.
+
+Example: `… | tr '
+' ' '` joins all output lines into one, so each run of a loop prints a
+single summary line.
+
+PowerShell: `(… ) -join ' '`.
+
+*First used in 009*
 
 ### sed -n: print selected lines
 
@@ -611,10 +627,16 @@ Example: `for i in 1 2 3 4 5 6 7 8 9 10; do python -c "import socket;socket.crea
 (wait until the server accepts connections). `2>/dev/null` discards the error messages
 from failed attempts.
 
+`seq N` prints the numbers 1 to N, one per line, so `for i in $(seq 10); do <cmd>; done` runs
+`<cmd>` ten times. `$(…)` substitutes a command's output. Useful to check whether a test is
+flaky: run it many times and compare the results.
+
+Example: `for i in $(seq 10); do python -m unittest tests.test_server.ServerTest.test_client_reset_does_not_stop_server 2>&1 | grep -a -E "^(OK|FAILED)"; done`
+
 PowerShell: `foreach ($i in 1..10) { python -c "…" 2>$null; if ($?) { break } }`,
 `Start-Sleep -Seconds 1`.
 
-*First used in 003*
+*First used in 003; `seq` and `$(…)` added in 009*
 
 ### sed -i: edit a file in place
 

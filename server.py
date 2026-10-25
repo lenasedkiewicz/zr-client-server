@@ -140,20 +140,30 @@ class Server:
         return {"status": "ok", "command": name, "data": data}
 
     def handle_client(self, conn):
-        """Serve one client until it disconnects or sends ``stop``."""
+        """Serve one client until it disconnects or sends ``stop``.
+
+        A network error (``OSError``, which includes ``ConnectionError`` and ``ssl.SSLError``)
+        on a read *or* a send ends only this connection; it never reaches ``serve_forever``.
+        """
         session = {"user": None}  # every connection starts logged out
         with conn, conn.makefile("r", encoding=ENCODING) as conn_file:
             while self.running:
                 try:
                     request = receive_message(conn_file)
                 except json.JSONDecodeError:
-                    send_message(conn, {"status": "error", "message": "Invalid JSON"})
-                    continue
-                except (ConnectionError, OSError):
+                    # Only build the reply here: an error raised inside a handler would skip
+                    # the sibling ``except OSError`` and escape.
+                    response = {"status": "error", "message": "Invalid JSON"}
+                except OSError:
                     return
-                if request is None:
+                else:
+                    if request is None:
+                        return
+                    response = self.handle_request(request, session)
+                try:
+                    send_message(conn, response)
+                except OSError:
                     return
-                send_message(conn, self.handle_request(request, session))
 
     def tls_handshake(self, conn, addr):
         """Wrap an accepted connection in TLS; return ``None`` if the handshake fails.

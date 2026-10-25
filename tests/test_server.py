@@ -6,6 +6,8 @@ import re
 import socket
 import ssl
 import stat
+import struct
+import sys
 import tempfile
 import threading
 import time
@@ -324,6 +326,27 @@ class ServerTest(unittest.TestCase):
             # Sends nothing; after the handshake timeout the server moves on to the next client.
             self.assert_server_still_serves()
         silent.close()
+
+    def test_client_reset_does_not_stop_server(self):
+        # Orders the events so it's the reply (a real send) that hits the reset, not a read:
+        # the server reads the request, then waits until the client has reset the connection.
+        request_read, reset_sent = threading.Event(), threading.Event()
+
+        def send_after_reset(sock, message):
+            request_read.set()
+            reset_sent.wait(timeout=5)
+            send_message(sock, message)
+
+        with mock.patch("server.send_message", send_after_reset):
+            send_message(self.sock, {"command": "help"})
+            self.assertTrue(request_read.wait(timeout=5))
+            # SO_LINGER on with a 0 s timeout: close() sends RST instead of FIN.
+            # struct linger is two ints on POSIX but two u_shorts on Windows.
+            linger_format = "HH" if sys.platform == "win32" else "ii"
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack(linger_format, 1, 0))
+            self.disconnect()  # without reading the reply
+            reset_sent.set()
+            self.assert_server_still_serves()
 
 
 if __name__ == "__main__":
