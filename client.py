@@ -5,7 +5,7 @@ import json
 import socket
 import ssl
 
-from config import ENCODING, HOST, PORT, TLS_CERT_FILE
+from config import HOST, PORT, TLS_CERT_FILE
 from protocol import receive_message, send_message
 
 
@@ -60,7 +60,7 @@ def main():
         print(f"TLS handshake failed: {error}")
         return
 
-    with sock, sock.makefile("r", encoding=ENCODING) as sock_file:
+    with sock, sock.makefile("rb") as sock_file:
         print(f"Connected to {HOST}:{PORT} over TLS. Type 'help' for the list of commands.")
         user = None  # shown in the prompt; mirrors the server-side session
         while True:

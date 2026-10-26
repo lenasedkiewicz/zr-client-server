@@ -18,3 +18,4 @@ Steps 1–7 of `PLAN.md` were built before the journal started and have no entri
 - 007 · 2026-10-19 · [Report an alpha SemVer version in info](007-alpha-version-in-info.md): 1.0.0 → 0.1.0-alpha, guarded by the official SemVer regex
 - 008 · 2026-10-21 · [Merge master into feature/admin (merge vs rebase)](008-merge-master-into-feature.md): merge keeps pushed history, rebase rewrites it; IDs numbered on two branches collide in meaning, not in git
 - 009 · 2026-10-25 · [A failed send ends only that connection](009-failed-send-ends-only-that-connection.md): narrow try blocks, a sibling except can't help, and a deterministic RST test with threading.Event
+- 010 · 2026-10-26 · [Malformed input gets an error reply, never a crash](010-malformed-input-gets-an-error-reply.md): read bytes, decode per line, catch ValueError + RecursionError; a text stream loses the line after a decode error

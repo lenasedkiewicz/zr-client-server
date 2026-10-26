@@ -50,7 +50,9 @@ zr-client-server/
 - Response: `{"status": "ok", "command": "uptime", "data": {...}}` or
   `{"status": "error", "message": "Unknown command: foo"}`.
 - Helpers: `send_message(sock, dict)` and `receive_message(sock_file) -> dict | None`
-  (reads one line via `sock.makefile("r")`, returns `None` on closed connection).
+  (reads one line of bytes via `sock.makefile("rb")` and decodes it on its own, so a
+  malformed line is rejected without corrupting the next; returns `None` on closed
+  connection).
 
 ## Step 4 — server (`server.py`)
 - Class `Server` storing `start_time = time.time()` at startup.

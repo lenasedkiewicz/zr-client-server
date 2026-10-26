@@ -71,7 +71,7 @@ class ServerTest(unittest.TestCase):
         except ssl.SSLError:
             raw_sock.close()
             raise
-        self.sock_file = self.sock.makefile("r", encoding=ENCODING)
+        self.sock_file = self.sock.makefile("rb")
 
     def disconnect(self):
         """Close the current client, so the single-client server accepts the next one."""
@@ -141,6 +141,27 @@ class ServerTest(unittest.TestCase):
         response = receive_message(self.sock_file)
         self.assertEqual(response["status"], "error")
         self.assertEqual(self.request("info")["status"], "ok")
+
+    def assert_malformed_line_rejected(self, line):
+        """``line`` gets an error reply; this session and the server keep working."""
+        self.login_as()
+        self.sock.sendall(line + b"\n")
+        self.assertEqual(receive_message(self.sock_file)["status"], "error")
+        self.assertEqual(self.request("info")["status"], "ok")
+        self.disconnect()
+        self.assert_server_still_serves()
+
+    def test_invalid_utf8(self):
+        self.assert_malformed_line_rejected(b"\xff\xfe not utf-8")
+
+    def test_integer_too_long_to_convert(self):
+        # Over the default int-to-str limit of 4300 digits: a plain ValueError, not JSONDecodeError.
+        self.assert_malformed_line_rejected(b'{"command": ' + b"1" * 5000 + b"}")
+
+    def test_nesting_too_deep(self):
+        # 2000 levels parse fine on Python 3.13; 100 000 raise RecursionError.
+        depth = 100_000
+        self.assert_malformed_line_rejected(b"[" * depth + b"]" * depth)
 
     def test_register(self):
         response = self.register()

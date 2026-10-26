@@ -19,12 +19,17 @@ def send_message(sock, message):
 
 
 def receive_message(sock_file):
-    """Read one message from a file object created with ``sock.makefile("r")``.
+    """Read one message from a binary file object created with ``sock.makefile("rb")``.
 
-    Returns the decoded dict, or ``None`` if the connection was closed.
-    Raises ``json.JSONDecodeError`` if the line is not valid JSON.
+    The line is read as bytes and decoded on its own, so a bad line can't corrupt the next
+    one (a text-mode stream's decoder may already have swallowed the bytes that follow).
+
+    Returns the decoded message, or ``None`` if the connection was closed.
+    Raises ``ValueError`` for a malformed line: invalid UTF-8 (``UnicodeDecodeError``),
+    invalid JSON (``json.JSONDecodeError``) or an integer too long to convert. Raises
+    ``RecursionError`` if the JSON is nested too deeply.
     """
     line = sock_file.readline()
     if not line:
         return None
-    return json.loads(line)
+    return json.loads(line.decode(ENCODING))

@@ -96,6 +96,18 @@ Example: `python -u server.py > "$TEMP/srv.log" 2>&1` (server log readable while
 
 *First used in 003*
 
+### python -I: isolated mode
+
+`python -I <script>`. Runs Python in isolated mode: the script's own folder and the current
+folder are **not** added to `sys.path`, and `PYTHON*` environment variables and the user
+site-packages are ignored. A stray `json.py` next to a probe script can't then shadow the
+real `json` module. Combine with `-u` as `python -I -u probe.py`.
+
+Example: `python -I -u probe.py` (a throwaway experiment in the scratchpad: which exception
+each malformed input raises, and whether a text stream survives a decode error)
+
+*First used in 010*
+
 ## TLS / OpenSSL
 
 ### openssl req: create a self-signed certificate
@@ -189,7 +201,22 @@ against the old code)
 PowerShell: the same, but `>` writes UTF-16 in Windows PowerShell 5.1; use
 `git show HEAD:users.py | Out-File -Encoding utf8 old_users.py`.
 
-*First used in 004*
+- `--stat <rev>`: show a commit's message and the list of files it changed, with
+  added/removed line counts, instead of the full diff. Example: `git show --stat HEAD~1`
+  (what the planning commit touched). `HEAD~1` is the commit before `HEAD`.
+
+*First used in 004; `--stat` added in 010*
+
+### git grep: search tracked files
+
+`git grep [-n] <pattern> [<path>]`. Like [grep](#grep-search-text) `-r`, but searches only
+files git tracks, so it skips `.git/`, ignored files and virtualenvs.
+
+Example: `git grep -n "skip" tests`
+
+PowerShell: the same command.
+
+*First used in 010*
 
 ### git log: list commits
 
@@ -541,7 +568,11 @@ Example: `python -m unittest discover tests 2>&1 | grep -E "^(Ran|OK|FAIL|ERROR)
 PowerShell: `Select-String -Pattern <p>` (`-NotMatch` for `-v`, `-Context 0,N` for `-A N`,
 `(… | Measure-Object).Count` for `-c`).
 
-*First used in 001; `-c` added in 003; `-r`, `-i` added in 006 (`grep -rniE "todo|next" README.md docs`); `-a` added in 009*
+In a basic (non `-E`) pattern, `\|` means "or" and `\b` is a word boundary:
+`grep -n "\bENCODING\b\|\bjson\b" server.py` finds `json` but not `json_file`. Useful to check
+whether an import is still used.
+
+*First used in 001; `-c` added in 003; `-r`, `-i` added in 006 (`grep -rniE "todo|next" README.md docs`); `-a` added in 009; `\|`, `\b` added in 010*
 
 ### tr: translate characters
 
@@ -637,6 +668,20 @@ PowerShell: `foreach ($i in 1..10) { python -c "…" 2>$null; if ($?) { break } 
 `Start-Sleep -Seconds 1`.
 
 *First used in 003; `seq` and `$(…)` added in 009*
+
+### timeout: stop a command that runs too long
+
+`timeout <seconds> <command>`. Runs the command and kills it if it hasn't finished after
+that many seconds (exit code 124). A guard for anything that might hang, such as a probe
+that blocks on `readline()` or a test against a server that just crashed.
+
+Example: `timeout 300 python -m unittest discover tests`
+
+Windows: this is the GNU coreutils `timeout` in Git Bash. `timeout.exe` in cmd/PowerShell
+is a different program that only *waits*. In PowerShell use
+`$p = Start-Process python -ArgumentList '-m','unittest' -PassThru -NoNewWindow; if (-not $p.WaitForExit(300000)) { $p.Kill() }`.
+
+*First used in 010*
 
 ### sed -i: edit a file in place
 

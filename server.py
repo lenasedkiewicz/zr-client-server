@@ -7,7 +7,6 @@ Every connection is wrapped in TLS; the server refuses to start without a certif
 """
 
 import datetime
-import json
 import socket
 import ssl
 import sys
@@ -15,7 +14,6 @@ import time
 
 from admin_setup import ensure_admin
 from config import (
-    ENCODING,
     HOST,
     PORT,
     SERVER_CREATED,
@@ -146,14 +144,19 @@ class Server:
         on a read *or* a send ends only this connection; it never reaches ``serve_forever``.
         """
         session = {"user": None}  # every connection starts logged out
-        with conn, conn.makefile("r", encoding=ENCODING) as conn_file:
+        with conn, conn.makefile("rb") as conn_file:
             while self.running:
                 try:
                     request = receive_message(conn_file)
-                except json.JSONDecodeError:
-                    # Only build the reply here: an error raised inside a handler would skip
-                    # the sibling ``except OSError`` and escape.
-                    response = {"status": "error", "message": "Invalid JSON"}
+                except (ValueError, RecursionError):
+                    # A malformed line (bad UTF-8, bad JSON, too-long int, too-deep nesting)
+                    # rejects only that message: the line is already consumed, so the session
+                    # goes on. Only build the reply here: an error raised inside a handler
+                    # would skip the sibling ``except OSError`` and escape.
+                    response = {
+                        "status": "error",
+                        "message": "Invalid message: expected one line of UTF-8 JSON",
+                    }
                 except OSError:
                     return
                 else:
