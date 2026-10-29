@@ -341,6 +341,17 @@ Example: `gh pr view 1 --json headRefName,baseRefName,mergeable,title`
 
 *First used in 008*
 
+### gh pr list: list pull requests
+
+`gh pr list [--head <branch>] [--state open|closed|merged|all]`. GitHub CLI: lists pull
+requests; by default only open ones.
+
+- `--head <branch>`: only PRs opened from this branch. Empty output means it has no open PR.
+
+Example: `gh pr list --head fix/server-survives-bad-client`
+
+*First used in 011*
+
 ### git ls-tree: list files in a commit
 
 `git ls-tree [--name-only] <rev> [<path>]`. Lists the files and folders stored in a commit or
@@ -378,6 +389,22 @@ other branch.
 Example: `git status --short --ignored`
 
 *First used in 005; `-sb` and merge codes added in 008*
+
+### git stash: put changes aside for a moment
+
+`git stash [push] [-q] [-- <path>…]` / `git stash pop [-q]`. Saves uncommitted changes on a
+stack and resets the files to the last commit; `pop` puts them back and drops the entry.
+
+- `-- <path>`: stash only these files and leave the others changed. Used here to undo just
+  the fix in `server.py` while keeping the new tests, to prove the tests fail without it.
+- `-q`: quiet, no summary output.
+
+Example: `git stash -q -- server.py && python -m unittest tests.test_server; git stash pop -q`
+
+If `pop` hits a conflict, the entry stays on the stack (`git stash list`) and nothing is
+lost. Resolve the conflict, then `git stash drop`.
+
+*First used in 011*
 
 ## WSL (Linux on Windows)
 
@@ -623,6 +650,19 @@ Example: `grep -n "TCP on" README.md | cat -A | cut -c1-140`
 PowerShell: `… | ForEach-Object { $_.Substring(0, [Math]::Min(140, $_.Length)) }`.
 
 *First used in 003*
+
+### sort / uniq -c: count repeated lines
+
+`… | sort | uniq -c`. `sort` puts identical lines next to each other; `uniq -c` collapses
+each run of identical lines into one, prefixed with how many there were. `uniq` alone only
+merges *adjacent* duplicates, which is why `sort` comes first.
+
+Example: `python -m unittest tests.test_server 2>&1 | grep -E "^(Ran|OK|FAILED)|AttributeError" | sort | uniq -c`
+(36 identical `AttributeError` lines become one line with the count 36)
+
+PowerShell: `… | Group-Object | Select-Object Count, Name`.
+
+*First used in 011*
 
 ### printf: print text with escapes
 

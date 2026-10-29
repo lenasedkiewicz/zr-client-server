@@ -52,6 +52,8 @@ class ServerTest(unittest.TestCase):
         )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        # listen() runs in the thread; connecting before it would be refused.
+        self.assertTrue(self.server.listening.wait(timeout=5), "server did not start listening")
         self.connect()
 
     def tearDown(self):
@@ -95,6 +97,18 @@ class ServerTest(unittest.TestCase):
         """Register (if needed) and log in, so protected commands can be used."""
         self.register(username, password)
         return self.login(username, password)
+
+    def test_listening_is_set_only_while_serving(self):
+        server = Server(port=0, users=UserStore(self.users_path, iterations=1_000),
+                        tls_context=make_server_context(TEST_CERT, TEST_KEY))
+        self.assertFalse(server.listening.is_set())  # bound, but listen() not called yet
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.assertTrue(server.listening.wait(timeout=5))
+        server.running = False  # the accept loop checks this at least once a second
+        thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+        self.assertFalse(server.listening.is_set())
 
     def test_uptime(self):
         self.login_as()
