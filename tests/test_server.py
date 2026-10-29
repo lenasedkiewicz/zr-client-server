@@ -6,6 +6,8 @@ import re
 import socket
 import ssl
 import stat
+import struct
+import sys
 import tempfile
 import threading
 import time
@@ -69,7 +71,7 @@ class ServerTest(unittest.TestCase):
         except ssl.SSLError:
             raw_sock.close()
             raise
-        self.sock_file = self.sock.makefile("r", encoding=ENCODING)
+        self.sock_file = self.sock.makefile("rb")
 
     def disconnect(self):
         """Close the current client, so the single-client server accepts the next one."""
@@ -139,6 +141,27 @@ class ServerTest(unittest.TestCase):
         response = receive_message(self.sock_file)
         self.assertEqual(response["status"], "error")
         self.assertEqual(self.request("info")["status"], "ok")
+
+    def assert_malformed_line_rejected(self, line):
+        """``line`` gets an error reply; this session and the server keep working."""
+        self.login_as()
+        self.sock.sendall(line + b"\n")
+        self.assertEqual(receive_message(self.sock_file)["status"], "error")
+        self.assertEqual(self.request("info")["status"], "ok")
+        self.disconnect()
+        self.assert_server_still_serves()
+
+    def test_invalid_utf8(self):
+        self.assert_malformed_line_rejected(b"\xff\xfe not utf-8")
+
+    def test_integer_too_long_to_convert(self):
+        # Over the default int-to-str limit of 4300 digits: a plain ValueError, not JSONDecodeError.
+        self.assert_malformed_line_rejected(b'{"command": ' + b"1" * 5000 + b"}")
+
+    def test_nesting_too_deep(self):
+        # 2000 levels parse fine on Python 3.13; 100 000 raise RecursionError.
+        depth = 100_000
+        self.assert_malformed_line_rejected(b"[" * depth + b"]" * depth)
 
     def test_register(self):
         response = self.register()
@@ -324,6 +347,27 @@ class ServerTest(unittest.TestCase):
             # Sends nothing; after the handshake timeout the server moves on to the next client.
             self.assert_server_still_serves()
         silent.close()
+
+    def test_client_reset_does_not_stop_server(self):
+        # Orders the events so it's the reply (a real send) that hits the reset, not a read:
+        # the server reads the request, then waits until the client has reset the connection.
+        request_read, reset_sent = threading.Event(), threading.Event()
+
+        def send_after_reset(sock, message):
+            request_read.set()
+            reset_sent.wait(timeout=5)
+            send_message(sock, message)
+
+        with mock.patch("server.send_message", send_after_reset):
+            send_message(self.sock, {"command": "help"})
+            self.assertTrue(request_read.wait(timeout=5))
+            # SO_LINGER on with a 0 s timeout: close() sends RST instead of FIN.
+            # struct linger is two ints on POSIX but two u_shorts on Windows.
+            linger_format = "HH" if sys.platform == "win32" else "ii"
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack(linger_format, 1, 0))
+            self.disconnect()  # without reading the reply
+            reset_sent.set()
+            self.assert_server_still_serves()
 
 
 if __name__ == "__main__":

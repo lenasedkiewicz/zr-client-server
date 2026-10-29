@@ -7,7 +7,6 @@ Every connection is wrapped in TLS; the server refuses to start without a certif
 """
 
 import datetime
-import json
 import socket
 import ssl
 import sys
@@ -15,7 +14,6 @@ import time
 
 from admin_setup import ensure_admin
 from config import (
-    ENCODING,
     HOST,
     PORT,
     SERVER_CREATED,
@@ -140,20 +138,35 @@ class Server:
         return {"status": "ok", "command": name, "data": data}
 
     def handle_client(self, conn):
-        """Serve one client until it disconnects or sends ``stop``."""
+        """Serve one client until it disconnects or sends ``stop``.
+
+        A network error (``OSError``, which includes ``ConnectionError`` and ``ssl.SSLError``)
+        on a read *or* a send ends only this connection; it never reaches ``serve_forever``.
+        """
         session = {"user": None}  # every connection starts logged out
-        with conn, conn.makefile("r", encoding=ENCODING) as conn_file:
+        with conn, conn.makefile("rb") as conn_file:
             while self.running:
                 try:
                     request = receive_message(conn_file)
-                except json.JSONDecodeError:
-                    send_message(conn, {"status": "error", "message": "Invalid JSON"})
-                    continue
-                except (ConnectionError, OSError):
+                except (ValueError, RecursionError):
+                    # A malformed line (bad UTF-8, bad JSON, too-long int, too-deep nesting)
+                    # rejects only that message: the line is already consumed, so the session
+                    # goes on. Only build the reply here: an error raised inside a handler
+                    # would skip the sibling ``except OSError`` and escape.
+                    response = {
+                        "status": "error",
+                        "message": "Invalid message: expected one line of UTF-8 JSON",
+                    }
+                except OSError:
                     return
-                if request is None:
+                else:
+                    if request is None:
+                        return
+                    response = self.handle_request(request, session)
+                try:
+                    send_message(conn, response)
+                except OSError:
                     return
-                send_message(conn, self.handle_request(request, session))
 
     def tls_handshake(self, conn, addr):
         """Wrap an accepted connection in TLS; return ``None`` if the handshake fails.
