@@ -472,6 +472,24 @@ PowerShell: `Get-ChildItem` (`-Recurse` for `-R`).
 
 *First used in 001*
 
+### cd / VAR=value: change directory, set a shell variable
+
+`cd <dir>` makes `<dir>` the current directory for the commands after it. `cmd1 && cmd2`
+runs `cmd2` only if `cmd1` succeeded, so `cd <dir> && python …` never runs in the wrong
+folder. In Git Bash, Windows drives are `/c/`, `/d/`, …, so `D:\Programming` becomes
+`/d/Programming`.
+
+`NAME=value` (no spaces around `=`) stores a value in a shell variable. Read it back with
+`"$NAME"`, in quotes so that a path with spaces stays one argument. It lasts only for that
+shell session.
+
+Example: `SP="…/scratchpad"` then `cd /d/Programming/zr-client-server && python "$SP/check_cleanup.py"`
+
+PowerShell: `Set-Location D:\Programming\zr-client-server` (alias `cd`). Variables are
+`$SP = "…"` and `$SP`. Windows PowerShell 5.1 has no `&&`; use `cmd1; if ($?) { cmd2 }`.
+
+*First used in 012*
+
 ### cat: print or append to files
 
 `cat <files>` prints files one after another. `cat >> <file> <<'EOF'` appends the heredoc

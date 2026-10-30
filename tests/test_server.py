@@ -39,6 +39,9 @@ class ServerTest(unittest.TestCase):
     def setUp(self):
         # Each test gets its own users file; few iterations keep the tests fast.
         self.tmp_dir = tempfile.TemporaryDirectory()
+        # Each cleanup is registered right after its resource exists; they run last-in-first-out
+        # even if setUp fails halfway or another cleanup raises.
+        self.addCleanup(self.tmp_dir.cleanup)
         self.users_path = os.path.join(self.tmp_dir.name, "users.json")
         users = UserStore(self.users_path, iterations=1_000)
         # Fake clock: tests move self.now forward instead of sleeping through a lockout.
@@ -52,19 +55,22 @@ class ServerTest(unittest.TestCase):
         )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        self.addCleanup(self.thread.join, timeout=5)
+        self.addCleanup(self.stop_server)
         # listen() runs in the thread; connecting before it would be refused.
         self.assertTrue(self.server.listening.wait(timeout=5), "server did not start listening")
         self.connect()
 
-    def tearDown(self):
-        if self.thread.is_alive():
-            # stop requires a login; if already logged in, login just errors and stop still works.
+    def stop_server(self):
+        """Send ``stop`` over a fresh connection; the test's own socket is closed by now."""
+        if not self.thread.is_alive():
+            return
+        try:
+            self.connect()
             self.login_as("teardown")
             self.request("stop")
-        self.sock_file.close()
-        self.sock.close()
-        self.thread.join(timeout=5)
-        self.tmp_dir.cleanup()
+        finally:
+            self.server.running = False  # fallback: the accept loop exits within a second
 
     def connect(self, cafile=TEST_CERT):
         raw_sock = socket.create_connection(self.server.address, timeout=5)
@@ -73,7 +79,9 @@ class ServerTest(unittest.TestCase):
         except ssl.SSLError:
             raw_sock.close()
             raise
+        self.addCleanup(self.sock.close)
         self.sock_file = self.sock.makefile("rb")
+        self.addCleanup(self.sock_file.close)
 
     def disconnect(self):
         """Close the current client, so the single-client server accepts the next one."""
