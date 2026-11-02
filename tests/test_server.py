@@ -1,4 +1,4 @@
-"""End-to-end tests for the server."""
+"""Tests for the server: version format, request handling (no sockets) and end-to-end."""
 
 import json
 import os
@@ -35,7 +35,91 @@ SEMVER = re.compile(
 )
 
 
+class VersionTest(unittest.TestCase):
+    def test_version_is_semver(self):
+        self.assertRegex(SERVER_VERSION, SEMVER)
+
+
+class HandleRequestTest(unittest.TestCase):
+    """Call ``Server.handle_request`` directly: no thread, no TLS, no client connection."""
+
+    def setUp(self):
+        tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp_dir.cleanup)
+        users = UserStore(os.path.join(tmp_dir.name, "users.json"), iterations=1_000)
+        self.server = Server(port=0, users=users, tls_context=make_server_context(TEST_CERT, TEST_KEY))
+        # The constructor binds a socket even though nothing listens or connects here.
+        self.addCleanup(self.server.sock.close)
+
+    def handle(self, request, user="alice"):
+        return self.server.handle_request(request, {"user": user})
+
+    def test_request_must_be_an_object_with_a_string_command(self):
+        for request in (
+            ["info"],  # not an object
+            "info",
+            None,
+            42,
+            {},  # missing command
+            {"args": {}},
+            {"command": 42},  # command not a string
+            {"command": None},
+            {"command": ["info"]},
+        ):
+            with self.subTest(request=request):
+                response = self.handle(request)
+                self.assertEqual(response["status"], "error")
+                self.assertIn("command", response["message"])
+
+    def test_args_must_be_object(self):
+        for args in (["not", "an", "object"], "x", 1, None):
+            with self.subTest(args=args):
+                response = self.handle({"command": "info", "args": args})
+                self.assertEqual(response, {"status": "error", "message": '"args" must be a JSON object'})
+
+    def test_unknown_command(self):
+        response = self.handle({"command": "foo"})
+        self.assertEqual(response["status"], "error")
+        self.assertIn("foo", response["message"])
+
+    def test_command_name_is_trimmed_and_case_insensitive(self):
+        self.assertEqual(self.handle({"command": "  INFO "})["command"], "info")
+
+    def test_login_required(self):
+        response = self.handle({"command": "info"}, user=None)
+        self.assertEqual(response["status"], "error")
+        self.assertEqual(response["command"], "info")
+        self.assertIn("Login required", response["message"])
+
+    def test_ok(self):
+        response = self.handle({"command": "info"})
+        self.assertEqual(response, {
+            "status": "ok",
+            "command": "info",
+            "data": {"version": SERVER_VERSION, "created": SERVER_CREATED},
+        })
+
+    def test_handler_value_error_becomes_error_reply(self):
+        response = self.handle({"command": "login", "args": {"username": 42}}, user=None)
+        self.assertEqual(response, {
+            "status": "error", "command": "login", "message": "Invalid username or password",
+        })
+
+    def test_stop_clears_running(self):
+        self.server.running = True
+        response = self.handle({"command": "stop"})
+        self.assertEqual(response["status"], "ok")
+        self.assertFalse(self.server.running)
+
+    def test_stop_requires_login(self):
+        self.server.running = True
+        self.assertEqual(self.handle({"command": "stop"}, user=None)["status"], "error")
+        self.assertTrue(self.server.running)
+
+
 class ServerTest(unittest.TestCase):
+    """End-to-end: a real server thread, TLS and a client socket."""
+
     def setUp(self):
         # Each test gets its own users file; few iterations keep the tests fast.
         self.tmp_dir = tempfile.TemporaryDirectory()
@@ -133,9 +217,6 @@ class ServerTest(unittest.TestCase):
         response = self.request("info")
         self.assertEqual(response["data"], {"version": SERVER_VERSION, "created": SERVER_CREATED})
 
-    def test_version_is_semver(self):
-        self.assertRegex(SERVER_VERSION, SEMVER)
-
     def test_help_logged_in_lists_all_commands(self):
         self.login_as()
         response = self.request("help")
@@ -148,14 +229,6 @@ class ServerTest(unittest.TestCase):
         response = self.request("help")
         self.assertEqual(response["status"], "ok")
         self.assertEqual(set(response["data"]), {"register", "login", "help"})
-
-    def test_unknown_command(self):
-        self.login_as()
-        response = self.request("foo")
-        self.assertEqual(response["status"], "error")
-        self.assertIn("foo", response["message"])
-        # The connection stays usable after an error.
-        self.assertEqual(self.request("info")["status"], "ok")
 
     def test_invalid_json(self):
         self.login_as()
@@ -222,10 +295,6 @@ class ServerTest(unittest.TestCase):
         ):
             with self.subTest(args=args):
                 self.assertEqual(self.request("register", args)["status"], "error")
-
-    def test_args_must_be_object(self):
-        response = self.request("info", args=["not", "an", "object"])
-        self.assertEqual(response["status"], "error")
 
     def test_users_persist_across_restarts(self):
         self.register()

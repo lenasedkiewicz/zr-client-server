@@ -43,12 +43,16 @@ finds every `test*.py` in the `tests` folder and runs it.
 - `discover <dir>`: the folder to search for tests.
 - `<module>.<Class>.<test>`: run a single test instead, e.g.
   `tests.test_server.ServerTest.test_users_file_is_owner_only`.
+- Several targets in one run: list modules and/or classes separated by spaces, e.g.
+  `tests.test_protocol tests.test_server.HandleRequestTest`. Handy for running only the fast
+  unit tests without the end-to-end class.
 - `-v`: verbose; print each test name with `ok`, `FAIL` or `skipped '<reason>'`.
 
 Example: `python -m unittest discover tests`,
-`python -m unittest -v tests.test_server.ServerTest.test_users_file_is_owner_only`
+`python -m unittest -v tests.test_server.ServerTest.test_users_file_is_owner_only`,
+`python -m unittest -v tests.test_protocol tests.test_server.HandleRequestTest tests.test_server.VersionTest`
 
-*First used in 001; single test and `-v` added in 004*
+*First used in 001; single test and `-v` added in 004; several modules/classes added in 013*
 
 ### python -c: run a one-line program
 
