@@ -22,3 +22,4 @@ Steps 1–7 of `PLAN.md` were built before the journal started and have no entri
 - 011 · 2026-10-29 · [Wait for the server to listen before connecting](011-wait-for-the-server-to-listen.md): a threading.Event set after listen() replaces guessing; sync on a signal, not on time
 - 012 · 2026-10-30 · [Register test cleanups with addCleanup](012-register-test-cleanups.md): register the undo right after the do; LIFO cleanups that run after a failed setUp and survive each other's errors
 - 013 · 2026-11-02 · [Unit-test request handling and the protocol without sockets](013-unit-tests-without-sockets.md): fix the upside-down test pyramid; BytesIO as a fake, Mock as a spy, end-to-end kept for wiring
+- 014 · 2026-11-03 · [Make the SemVer check strict](014-strict-semver-check.md): `\d` is Unicode and `$` forgives a trailing newline in Python; re.ASCII + fullmatch, and watch the negative test fail first

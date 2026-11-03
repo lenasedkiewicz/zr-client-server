@@ -63,7 +63,15 @@ Example: `python -c "import client; print(client.build_request('info'))"`
 
 PowerShell: the same command. Use double quotes outside and single quotes inside.
 
-*First used in 001*
+Gotcha (Windows): the console encoding is a legacy code page (e.g. `cp1250`), so
+`print('١')` fails with `UnicodeEncodeError: 'charmap' codec can't encode`. That is
+the *printing* failing, not your code. Print `bool(...)`, `ascii(...)` or `repr(...)`
+instead, or set `PYTHONIOENCODING=utf-8` (PowerShell: `$env:PYTHONIOENCODING = 'utf-8'`).
+Example from 014:
+`python -c "import re; print(bool(re.match(r'^\d$', '١')), bool(re.match(r'^1$', '1\n')))"`
+→ `True True` (`\d` matches an Arabic-Indic digit; `$` accepts a trailing newline).
+
+*First used in 001; console-encoding gotcha added in 014*
 
 ### python <file>: run a script file
 
@@ -86,6 +94,13 @@ two characters `\n` into a target file, write `\\n` in the script. Text containi
 backslashes (Windows paths like `C:\Users`, where `\U` is an invalid escape, or regexes) is
 easier as a raw string (`r'…'`) in a script file written with an editor, run with
 [python <file>](#python-file-run-a-script-file). *(Raw-string tip added in 003.)*
+
+The same trap with `\u`: `"\\u0662"` in the script is the 6 characters `٢` in Python,
+and if that text then lands inside *another* normal string literal it becomes the real
+character `٢`. In 014 this wrote a non-ASCII digit into the test file instead of an escape.
+Use `chr(92) + 'u0662'` (92 is the backslash), or skip the script and use an editor.
+Check the result with [file](#file-show-a-files-type-and-line-endings) (`ASCII text` vs
+`UTF-8 text`) or [od -c](#od--c-show-the-exact-characters-in-a-file). *(Added in 014.)*
 
 PowerShell: pipe a here-string instead: `@'<code>'@ | python -`.
 
@@ -569,7 +584,25 @@ rewritten a whole LF file as CRLF: on Windows, `open(p, "w")` in text mode write
 PowerShell: no built-in equivalent. `(Get-Content -Raw server.py) -match "\r\n"` returns
 `True` for CRLF.
 
-*First used in 006*
+`file -` reads stdin instead of a file, so you can check an old version without writing it
+to disk: `git show HEAD:tests/test_server.py | file -`. `ASCII text` vs `UTF-8 text` tells
+you whether a non-ASCII character slipped into the file.
+
+*First used in 006; `-` (stdin) added in 014*
+
+### od -c: show the exact characters in a file
+
+`od -c <file>` ("octal dump", `-c` = as characters). Prints every byte, with escapes for
+the invisible ones (`\n`, `\r`, `\t`) and octal codes for non-ASCII bytes. Use it when an
+editor or terminal hides what is really in a line.
+
+Example: `sed -n 58p tests/test_server.py | od -c`. In 014 it checked whether a line held
+the escape `٢` (six ASCII characters) or the real UTF-8 bytes of `٢`.
+
+PowerShell: `Format-Hex tests/test_server.py` (hex instead of octal; on Windows PowerShell
+5.1 it reads the file's bytes, so pass a path rather than piped text).
+
+*First used in 014*
 
 ### < file / $?: redirect stdin, read the exit code
 

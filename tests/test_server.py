@@ -28,16 +28,42 @@ TEST_KEY = os.path.join(CERTS_DIR, "test-server.key")
 OTHER_CERT = os.path.join(CERTS_DIR, "other.crt")
 
 # Official SemVer 2.0.0 regex, see https://semver.org/ (FAQ: "suggested regular expression").
+# Kept verbatim so it can be compared with the spec. Python adds two traps the spec's regex
+# doesn't expect: in a str pattern \d matches every Unicode digit (re.ASCII limits it to
+# 0-9), and $ also matches before a final newline (fullmatch in is_semver rejects it).
 SEMVER = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
     r"(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?"
-    r"(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
+    r"(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$",
+    re.ASCII,
 )
+
+
+def is_semver(version: str) -> bool:
+    """Return True if ``version`` is a SemVer 2.0.0 version string."""
+    return SEMVER.fullmatch(version) is not None
 
 
 class VersionTest(unittest.TestCase):
     def test_version_is_semver(self):
-        self.assertRegex(SERVER_VERSION, SEMVER)
+        self.assertTrue(is_semver(SERVER_VERSION), SERVER_VERSION)
+
+    def test_semver_accepts_valid_versions(self):
+        for version in ("0.1.0", "0.1.0-alpha", "1.0.0-rc.1", "1.2.3+build.7", "10.20.30"):
+            with self.subTest(version=version):
+                self.assertTrue(is_semver(version))
+
+    def test_semver_rejects_invalid_versions(self):
+        invalid = {
+            "arabic-indic digits": "1\u0662.0.0",  # U+0662 ARABIC-INDIC DIGIT TWO
+            "trailing newline": "0.1.0-alpha\n",
+            "leading v": "v0.1.0",
+            "leading zero": "01.0.0",
+            "missing patch": "1.0",
+        }
+        for reason, version in invalid.items():
+            with self.subTest(reason):
+                self.assertFalse(is_semver(version))
 
 
 class HandleRequestTest(unittest.TestCase):
