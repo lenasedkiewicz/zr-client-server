@@ -1,4 +1,4 @@
-"""End-to-end tests for the server."""
+"""Tests for the server: version format, request handling (no sockets) and end-to-end."""
 
 import json
 import os
@@ -28,17 +28,130 @@ TEST_KEY = os.path.join(CERTS_DIR, "test-server.key")
 OTHER_CERT = os.path.join(CERTS_DIR, "other.crt")
 
 # Official SemVer 2.0.0 regex, see https://semver.org/ (FAQ: "suggested regular expression").
+# Kept verbatim so it can be compared with the spec. Python adds two traps the spec's regex
+# doesn't expect: in a str pattern \d matches every Unicode digit (re.ASCII limits it to
+# 0-9), and $ also matches before a final newline (fullmatch in is_semver rejects it).
 SEMVER = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
     r"(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?"
-    r"(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
+    r"(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$",
+    re.ASCII,
 )
 
 
+def is_semver(version: str) -> bool:
+    """Return True if ``version`` is a SemVer 2.0.0 version string."""
+    return SEMVER.fullmatch(version) is not None
+
+
+class VersionTest(unittest.TestCase):
+    def test_version_is_semver(self):
+        self.assertTrue(is_semver(SERVER_VERSION), SERVER_VERSION)
+
+    def test_semver_accepts_valid_versions(self):
+        for version in ("0.1.0", "0.1.0-alpha", "1.0.0-rc.1", "1.2.3+build.7", "10.20.30"):
+            with self.subTest(version=version):
+                self.assertTrue(is_semver(version))
+
+    def test_semver_rejects_invalid_versions(self):
+        invalid = {
+            "arabic-indic digits": "1\u0662.0.0",  # U+0662 ARABIC-INDIC DIGIT TWO
+            "trailing newline": "0.1.0-alpha\n",
+            "leading v": "v0.1.0",
+            "leading zero": "01.0.0",
+            "missing patch": "1.0",
+        }
+        for reason, version in invalid.items():
+            with self.subTest(reason):
+                self.assertFalse(is_semver(version))
+
+
+class HandleRequestTest(unittest.TestCase):
+    """Call ``Server.handle_request`` directly: no thread, no TLS, no client connection."""
+
+    def setUp(self):
+        tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp_dir.cleanup)
+        users = UserStore(os.path.join(tmp_dir.name, "users.json"), iterations=1_000)
+        self.server = Server(port=0, users=users, tls_context=make_server_context(TEST_CERT, TEST_KEY))
+        # The constructor binds a socket even though nothing listens or connects here.
+        self.addCleanup(self.server.sock.close)
+
+    def handle(self, request, user="alice"):
+        return self.server.handle_request(request, {"user": user})
+
+    def test_request_must_be_an_object_with_a_string_command(self):
+        for request in (
+            ["info"],  # not an object
+            "info",
+            None,
+            42,
+            {},  # missing command
+            {"args": {}},
+            {"command": 42},  # command not a string
+            {"command": None},
+            {"command": ["info"]},
+        ):
+            with self.subTest(request=request):
+                response = self.handle(request)
+                self.assertEqual(response["status"], "error")
+                self.assertIn("command", response["message"])
+
+    def test_args_must_be_object(self):
+        for args in (["not", "an", "object"], "x", 1, None):
+            with self.subTest(args=args):
+                response = self.handle({"command": "info", "args": args})
+                self.assertEqual(response, {"status": "error", "message": '"args" must be a JSON object'})
+
+    def test_unknown_command(self):
+        response = self.handle({"command": "foo"})
+        self.assertEqual(response["status"], "error")
+        self.assertIn("foo", response["message"])
+
+    def test_command_name_is_trimmed_and_case_insensitive(self):
+        self.assertEqual(self.handle({"command": "  INFO "})["command"], "info")
+
+    def test_login_required(self):
+        response = self.handle({"command": "info"}, user=None)
+        self.assertEqual(response["status"], "error")
+        self.assertEqual(response["command"], "info")
+        self.assertIn("Login required", response["message"])
+
+    def test_ok(self):
+        response = self.handle({"command": "info"})
+        self.assertEqual(response, {
+            "status": "ok",
+            "command": "info",
+            "data": {"version": SERVER_VERSION, "created": SERVER_CREATED},
+        })
+
+    def test_handler_value_error_becomes_error_reply(self):
+        response = self.handle({"command": "login", "args": {"username": 42}}, user=None)
+        self.assertEqual(response, {
+            "status": "error", "command": "login", "message": "Invalid username or password",
+        })
+
+    def test_stop_clears_running(self):
+        self.server.running = True
+        response = self.handle({"command": "stop"})
+        self.assertEqual(response["status"], "ok")
+        self.assertFalse(self.server.running)
+
+    def test_stop_requires_login(self):
+        self.server.running = True
+        self.assertEqual(self.handle({"command": "stop"}, user=None)["status"], "error")
+        self.assertTrue(self.server.running)
+
+
 class ServerTest(unittest.TestCase):
+    """End-to-end: a real server thread, TLS and a client socket."""
+
     def setUp(self):
         # Each test gets its own users file; few iterations keep the tests fast.
         self.tmp_dir = tempfile.TemporaryDirectory()
+        # Each cleanup is registered right after its resource exists; they run last-in-first-out
+        # even if setUp fails halfway or another cleanup raises.
+        self.addCleanup(self.tmp_dir.cleanup)
         self.users_path = os.path.join(self.tmp_dir.name, "users.json")
         users = UserStore(self.users_path, iterations=1_000)
         # Fake clock: tests move self.now forward instead of sleeping through a lockout.
@@ -52,17 +165,22 @@ class ServerTest(unittest.TestCase):
         )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        self.addCleanup(self.thread.join, timeout=5)
+        self.addCleanup(self.stop_server)
+        # listen() runs in the thread; connecting before it would be refused.
+        self.assertTrue(self.server.listening.wait(timeout=5), "server did not start listening")
         self.connect()
 
-    def tearDown(self):
-        if self.thread.is_alive():
-            # stop requires a login; if already logged in, login just errors and stop still works.
+    def stop_server(self):
+        """Send ``stop`` over a fresh connection; the test's own socket is closed by now."""
+        if not self.thread.is_alive():
+            return
+        try:
+            self.connect()
             self.login_as("teardown")
             self.request("stop")
-        self.sock_file.close()
-        self.sock.close()
-        self.thread.join(timeout=5)
-        self.tmp_dir.cleanup()
+        finally:
+            self.server.running = False  # fallback: the accept loop exits within a second
 
     def connect(self, cafile=TEST_CERT):
         raw_sock = socket.create_connection(self.server.address, timeout=5)
@@ -71,7 +189,9 @@ class ServerTest(unittest.TestCase):
         except ssl.SSLError:
             raw_sock.close()
             raise
+        self.addCleanup(self.sock.close)
         self.sock_file = self.sock.makefile("rb")
+        self.addCleanup(self.sock_file.close)
 
     def disconnect(self):
         """Close the current client, so the single-client server accepts the next one."""
@@ -96,6 +216,18 @@ class ServerTest(unittest.TestCase):
         self.register(username, password)
         return self.login(username, password)
 
+    def test_listening_is_set_only_while_serving(self):
+        server = Server(port=0, users=UserStore(self.users_path, iterations=1_000),
+                        tls_context=make_server_context(TEST_CERT, TEST_KEY))
+        self.assertFalse(server.listening.is_set())  # bound, but listen() not called yet
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.assertTrue(server.listening.wait(timeout=5))
+        server.running = False  # the accept loop checks this at least once a second
+        thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+        self.assertFalse(server.listening.is_set())
+
     def test_uptime(self):
         self.login_as()
         first = self.request("uptime")
@@ -111,9 +243,6 @@ class ServerTest(unittest.TestCase):
         response = self.request("info")
         self.assertEqual(response["data"], {"version": SERVER_VERSION, "created": SERVER_CREATED})
 
-    def test_version_is_semver(self):
-        self.assertRegex(SERVER_VERSION, SEMVER)
-
     def test_help_logged_in_lists_all_commands(self):
         self.login_as()
         response = self.request("help")
@@ -126,14 +255,6 @@ class ServerTest(unittest.TestCase):
         response = self.request("help")
         self.assertEqual(response["status"], "ok")
         self.assertEqual(set(response["data"]), {"register", "login", "help"})
-
-    def test_unknown_command(self):
-        self.login_as()
-        response = self.request("foo")
-        self.assertEqual(response["status"], "error")
-        self.assertIn("foo", response["message"])
-        # The connection stays usable after an error.
-        self.assertEqual(self.request("info")["status"], "ok")
 
     def test_invalid_json(self):
         self.login_as()
@@ -200,10 +321,6 @@ class ServerTest(unittest.TestCase):
         ):
             with self.subTest(args=args):
                 self.assertEqual(self.request("register", args)["status"], "error")
-
-    def test_args_must_be_object(self):
-        response = self.request("info", args=["not", "an", "object"])
-        self.assertEqual(response["status"], "error")
 
     def test_users_persist_across_restarts(self):
         self.register()

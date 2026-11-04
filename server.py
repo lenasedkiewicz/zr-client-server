@@ -10,6 +10,7 @@ import datetime
 import socket
 import ssl
 import sys
+import threading
 import time
 
 from admin_setup import ensure_admin
@@ -49,6 +50,8 @@ class Server:
         # Built before binding, so a missing certificate never leaves a socket open.
         self.tls_context = tls_context if tls_context is not None else make_server_context()
         self.running = False
+        # Set once listen() has run, so callers (the tests) know they can connect.
+        self.listening = threading.Event()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind((host, port))
@@ -187,6 +190,7 @@ class Server:
     def serve_forever(self):
         self.running = True
         self.sock.listen()
+        self.listening.set()
         # Wake up periodically so Ctrl+C works on Windows, where a blocking accept()
         # is not interrupted by KeyboardInterrupt. Accepted sockets stay blocking.
         self.sock.settimeout(1.0)
@@ -206,6 +210,7 @@ class Server:
         except KeyboardInterrupt:
             print("\nInterrupted")
         finally:
+            self.listening.clear()
             self.sock.close()
             print("Server stopped")
 

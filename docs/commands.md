@@ -43,12 +43,16 @@ finds every `test*.py` in the `tests` folder and runs it.
 - `discover <dir>`: the folder to search for tests.
 - `<module>.<Class>.<test>`: run a single test instead, e.g.
   `tests.test_server.ServerTest.test_users_file_is_owner_only`.
+- Several targets in one run: list modules and/or classes separated by spaces, e.g.
+  `tests.test_protocol tests.test_server.HandleRequestTest`. Handy for running only the fast
+  unit tests without the end-to-end class.
 - `-v`: verbose; print each test name with `ok`, `FAIL` or `skipped '<reason>'`.
 
 Example: `python -m unittest discover tests`,
-`python -m unittest -v tests.test_server.ServerTest.test_users_file_is_owner_only`
+`python -m unittest -v tests.test_server.ServerTest.test_users_file_is_owner_only`,
+`python -m unittest -v tests.test_protocol tests.test_server.HandleRequestTest tests.test_server.VersionTest`
 
-*First used in 001; single test and `-v` added in 004*
+*First used in 001; single test and `-v` added in 004; several modules/classes added in 013*
 
 ### python -c: run a one-line program
 
@@ -59,7 +63,15 @@ Example: `python -c "import client; print(client.build_request('info'))"`
 
 PowerShell: the same command. Use double quotes outside and single quotes inside.
 
-*First used in 001*
+Gotcha (Windows): the console encoding is a legacy code page (e.g. `cp1250`), so
+`print('١')` fails with `UnicodeEncodeError: 'charmap' codec can't encode`. That is
+the *printing* failing, not your code. Print `bool(...)`, `ascii(...)` or `repr(...)`
+instead, or set `PYTHONIOENCODING=utf-8` (PowerShell: `$env:PYTHONIOENCODING = 'utf-8'`).
+Example from 014:
+`python -c "import re; print(bool(re.match(r'^\d$', '١')), bool(re.match(r'^1$', '1\n')))"`
+→ `True True` (`\d` matches an Arabic-Indic digit; `$` accepts a trailing newline).
+
+*First used in 001; console-encoding gotcha added in 014*
 
 ### python <file>: run a script file
 
@@ -82,6 +94,13 @@ two characters `\n` into a target file, write `\\n` in the script. Text containi
 backslashes (Windows paths like `C:\Users`, where `\U` is an invalid escape, or regexes) is
 easier as a raw string (`r'…'`) in a script file written with an editor, run with
 [python <file>](#python-file-run-a-script-file). *(Raw-string tip added in 003.)*
+
+The same trap with `\u`: `"\\u0662"` in the script is the 6 characters `٢` in Python,
+and if that text then lands inside *another* normal string literal it becomes the real
+character `٢`. In 014 this wrote a non-ASCII digit into the test file instead of an escape.
+Use `chr(92) + 'u0662'` (92 is the backslash), or skip the script and use an editor.
+Check the result with [file](#file-show-a-files-type-and-line-endings) (`ASCII text` vs
+`UTF-8 text`) or [od -c](#od--c-show-the-exact-characters-in-a-file). *(Added in 014.)*
 
 PowerShell: pipe a here-string instead: `@'<code>'@ | python -`.
 
@@ -341,6 +360,17 @@ Example: `gh pr view 1 --json headRefName,baseRefName,mergeable,title`
 
 *First used in 008*
 
+### gh pr list: list pull requests
+
+`gh pr list [--head <branch>] [--state open|closed|merged|all]`. GitHub CLI: lists pull
+requests; by default only open ones.
+
+- `--head <branch>`: only PRs opened from this branch. Empty output means it has no open PR.
+
+Example: `gh pr list --head fix/server-survives-bad-client`
+
+*First used in 011*
+
 ### git ls-tree: list files in a commit
 
 `git ls-tree [--name-only] <rev> [<path>]`. Lists the files and folders stored in a commit or
@@ -378,6 +408,22 @@ other branch.
 Example: `git status --short --ignored`
 
 *First used in 005; `-sb` and merge codes added in 008*
+
+### git stash: put changes aside for a moment
+
+`git stash [push] [-q] [-- <path>…]` / `git stash pop [-q]`. Saves uncommitted changes on a
+stack and resets the files to the last commit; `pop` puts them back and drops the entry.
+
+- `-- <path>`: stash only these files and leave the others changed. Used here to undo just
+  the fix in `server.py` while keeping the new tests, to prove the tests fail without it.
+- `-q`: quiet, no summary output.
+
+Example: `git stash -q -- server.py && python -m unittest tests.test_server; git stash pop -q`
+
+If `pop` hits a conflict, the entry stays on the stack (`git stash list`) and nothing is
+lost. Resolve the conflict, then `git stash drop`.
+
+*First used in 011*
 
 ## WSL (Linux on Windows)
 
@@ -444,6 +490,24 @@ PowerShell: `(Get-Command openssl).Source` (errors if not found).
 PowerShell: `Get-ChildItem` (`-Recurse` for `-R`).
 
 *First used in 001*
+
+### cd / VAR=value: change directory, set a shell variable
+
+`cd <dir>` makes `<dir>` the current directory for the commands after it. `cmd1 && cmd2`
+runs `cmd2` only if `cmd1` succeeded, so `cd <dir> && python …` never runs in the wrong
+folder. In Git Bash, Windows drives are `/c/`, `/d/`, …, so `D:\Programming` becomes
+`/d/Programming`.
+
+`NAME=value` (no spaces around `=`) stores a value in a shell variable. Read it back with
+`"$NAME"`, in quotes so that a path with spaces stays one argument. It lasts only for that
+shell session.
+
+Example: `SP="…/scratchpad"` then `cd /d/Programming/zr-client-server && python "$SP/check_cleanup.py"`
+
+PowerShell: `Set-Location D:\Programming\zr-client-server` (alias `cd`). Variables are
+`$SP = "…"` and `$SP`. Windows PowerShell 5.1 has no `&&`; use `cmd1; if ($?) { cmd2 }`.
+
+*First used in 012*
 
 ### cat: print or append to files
 
@@ -520,7 +584,25 @@ rewritten a whole LF file as CRLF: on Windows, `open(p, "w")` in text mode write
 PowerShell: no built-in equivalent. `(Get-Content -Raw server.py) -match "\r\n"` returns
 `True` for CRLF.
 
-*First used in 006*
+`file -` reads stdin instead of a file, so you can check an old version without writing it
+to disk: `git show HEAD:tests/test_server.py | file -`. `ASCII text` vs `UTF-8 text` tells
+you whether a non-ASCII character slipped into the file.
+
+*First used in 006; `-` (stdin) added in 014*
+
+### od -c: show the exact characters in a file
+
+`od -c <file>` ("octal dump", `-c` = as characters). Prints every byte, with escapes for
+the invisible ones (`\n`, `\r`, `\t`) and octal codes for non-ASCII bytes. Use it when an
+editor or terminal hides what is really in a line.
+
+Example: `sed -n 58p tests/test_server.py | od -c`. In 014 it checked whether a line held
+the escape `٢` (six ASCII characters) or the real UTF-8 bytes of `٢`.
+
+PowerShell: `Format-Hex tests/test_server.py` (hex instead of octal; on Windows PowerShell
+5.1 it reads the file's bytes, so pass a path rather than piped text).
+
+*First used in 014*
 
 ### < file / $?: redirect stdin, read the exit code
 
@@ -623,6 +705,19 @@ Example: `grep -n "TCP on" README.md | cat -A | cut -c1-140`
 PowerShell: `… | ForEach-Object { $_.Substring(0, [Math]::Min(140, $_.Length)) }`.
 
 *First used in 003*
+
+### sort / uniq -c: count repeated lines
+
+`… | sort | uniq -c`. `sort` puts identical lines next to each other; `uniq -c` collapses
+each run of identical lines into one, prefixed with how many there were. `uniq` alone only
+merges *adjacent* duplicates, which is why `sort` comes first.
+
+Example: `python -m unittest tests.test_server 2>&1 | grep -E "^(Ran|OK|FAILED)|AttributeError" | sort | uniq -c`
+(36 identical `AttributeError` lines become one line with the count 36)
+
+PowerShell: `… | Group-Object | Select-Object Count, Name`.
+
+*First used in 011*
 
 ### printf: print text with escapes
 
