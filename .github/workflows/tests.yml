@@ -1,0 +1,28 @@
+# Run the unittest suite on every push and pull request.
+# Matrix: both operating systems the app supports x the oldest and newest Python we promise.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read  # the jobs only read the code; no write token
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false  # one failing combination doesn't cancel the others
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.14"]
+    timeout-minutes: 10  # a hung socket test must not run for hours
+    steps:
+      # Actions pinned to a full commit SHA (a tag can be moved); the comment gives the version.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run tests
+        run: python -m unittest discover tests -v

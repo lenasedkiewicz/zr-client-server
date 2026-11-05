@@ -1,5 +1,7 @@
 # zr-client-server
 
+[![tests](https://github.com/lenasedkiewicz/zr-client-server/actions/workflows/tests.yml/badge.svg)](https://github.com/lenasedkiewicz/zr-client-server/actions/workflows/tests.yml)
+
 A simple client/server application communicating over raw TCP sockets encrypted with TLS,
 written in pure Python (standard library only — no frameworks). The server answers every
 command with JSON.
@@ -173,6 +175,7 @@ zr-client-server/
 ├── users.py       # user accounts with salted password hashes
 ├── throttle.py    # temporary lockout after failed logins
 ├── admin_setup.py # creates the first admin account on first start
+├── .github/workflows/tests.yml  # CI: runs the tests on Linux and Windows
 ├── tests/
 │   ├── certs/         # test-only certificates (never use them elsewhere)
 │   ├── test_admin_setup.py
@@ -190,3 +193,12 @@ zr-client-server/
 ```bash
 python -m unittest discover tests
 ```
+
+GitHub Actions runs the same command on every push and pull request, on Ubuntu and Windows
+with Python 3.10 and 3.14 (`.github/workflows/tests.yml`).
+
+Antivirus software that scans HTTPS (for example Avast Web Shield) intercepts TLS even on
+`127.0.0.1` and replaces the server's certificate with its own. The client trusts only our
+certificate, so it refuses the connection and the TLS tests fail with
+`CERTIFICATE_VERIFY_FAILED`. Exclude `python.exe` from HTTPS scanning, run the tests in WSL,
+or rely on the CI run.
