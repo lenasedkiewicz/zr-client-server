@@ -27,3 +27,7 @@ TLS_CERT_FILE = "server.crt"
 TLS_KEY_FILE = "server.key"
 # A client that connects but never finishes the handshake must not block the accept loop.
 TLS_HANDSHAKE_TIMEOUT = 5.0
+
+# Server logging, applied only when server.py runs as a script
+LOG_LEVEL = "INFO"
+LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
