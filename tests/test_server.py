@@ -143,6 +143,36 @@ class HandleRequestTest(unittest.TestCase):
         self.assertTrue(self.server.running)
 
 
+class DroppedClientLoggingTest(unittest.TestCase):
+    """Call ``Server.handle_client`` with a fake connection: failures happen on demand."""
+
+    ADDR = ("192.0.2.1", 5000)  # documentation-only address (RFC 5737)
+
+    def setUp(self):
+        tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp_dir.cleanup)
+        users = UserStore(os.path.join(tmp_dir.name, "users.json"), iterations=1_000)
+        self.server = Server(port=0, users=users, tls_context=make_server_context(TEST_CERT, TEST_KEY))
+        self.addCleanup(self.server.sock.close)
+        self.server.running = True  # handle_client loops only while the server runs
+
+    def assert_drop_logged_as_warning(self):
+        with self.assertLogs("server", level="WARNING") as logs:
+            self.server.handle_client(mock.MagicMock(), self.ADDR)
+        self.assertEqual(len(logs.records), 1)
+        self.assertEqual(logs.records[0].levelname, "WARNING")
+        self.assertIn("192.0.2.1:5000", logs.records[0].getMessage())
+
+    def test_failed_read_is_logged(self):
+        with mock.patch("server.receive_message", side_effect=ConnectionResetError("reset")):
+            self.assert_drop_logged_as_warning()
+
+    def test_failed_send_is_logged(self):
+        with mock.patch("server.receive_message", return_value={"command": "help"}), \
+                mock.patch("server.send_message", side_effect=ConnectionResetError("reset")):
+            self.assert_drop_logged_as_warning()
+
+
 class ServerTest(unittest.TestCase):
     """End-to-end: a real server thread, TLS and a client socket."""
 
@@ -440,16 +470,21 @@ class ServerTest(unittest.TestCase):
 
     def test_plain_tcp_client_gets_no_reply(self):
         self.disconnect()
-        with socket.create_connection(self.server.address, timeout=5) as plain:
-            plain.sendall(b'{"command": "help"}\n')
-            received = b""
-            try:
-                while chunk := plain.recv(4096):
-                    received += chunk
-            except (ConnectionError, socket.timeout):
-                pass  # the server drops the connection after the failed handshake
-        self.assertNotIn(b"status", received)  # at most a binary TLS alert, never JSON
-        self.assert_server_still_serves()
+        with self.assertLogs("server", level="WARNING") as logs:
+            with socket.create_connection(self.server.address, timeout=5) as plain:
+                port = plain.getsockname()[1]
+                plain.sendall(b'{"command": "help"}\n')
+                received = b""
+                try:
+                    while chunk := plain.recv(4096):
+                        received += chunk
+                except (ConnectionError, socket.timeout):
+                    pass  # the server drops the connection after the failed handshake
+            self.assertNotIn(b"status", received)  # at most a binary TLS alert, never JSON
+            self.assert_server_still_serves()
+        # Match this client's port: the client from setUp may log its own warning first.
+        failures = [line for line in logs.output if f"TLS handshake failed: {HOST}:{port} " in line]
+        self.assertEqual(len(failures), 1, logs.output)
 
     def test_client_trusting_other_certificate_rejects_server(self):
         self.disconnect()
@@ -485,6 +520,36 @@ class ServerTest(unittest.TestCase):
             self.disconnect()  # without reading the reply
             reset_sent.set()
             self.assert_server_still_serves()
+
+    def test_connect_and_disconnect_are_logged_at_info(self):
+        self.disconnect()
+        with self.assertLogs("server", level="INFO") as logs:
+            self.connect()
+            port = self.sock.getsockname()[1]
+            # TLS 1.3: the client is done once it has sent its last handshake message, while the
+            # server still has to read it. A reply proves the server got that far; disconnecting
+            # without one can abort the server's handshake.
+            self.request("help")
+            self.disconnect()
+            # One client at a time: this answer proves the server finished with the last one.
+            self.assert_server_still_serves()
+        self.assertIn(f"INFO:server:Client connected: {HOST}:{port}", logs.output)
+        self.assertIn(f"INFO:server:Client disconnected: {HOST}:{port}", logs.output)
+
+    def test_logs_never_contain_passwords(self):
+        password = "do-not-log-me-123"
+        self.disconnect()
+        with self.assertLogs("server", level="DEBUG") as logs:
+            self.connect()
+            self.register("alice", password)
+            self.login("alice", "wrong-do-not-log-me")
+            self.login("alice", password)
+            self.disconnect()
+            self.connect()
+            self.request("help")
+        output = "\n".join(logs.output)
+        self.assertNotIn(password, output)
+        self.assertNotIn("wrong-do-not-log-me", output)
 
 
 if __name__ == "__main__":

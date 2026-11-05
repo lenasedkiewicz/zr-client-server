@@ -411,19 +411,95 @@ Example: `git status --short --ignored`
 
 ### git stash: put changes aside for a moment
 
-`git stash [push] [-q] [-- <path>…]` / `git stash pop [-q]`. Saves uncommitted changes on a
+`git stash [push] [-q] [-u] [-m <message>] [-- <path>…]` / `git stash pop [-q]`. Saves uncommitted changes on a
 stack and resets the files to the last commit; `pop` puts them back and drops the entry.
 
 - `-- <path>`: stash only these files and leave the others changed. Used here to undo just
   the fix in `server.py` while keeping the new tests, to prove the tests fail without it.
 - `-q`: quiet, no summary output.
+- `-u`: also stash untracked files, which are left in place by default.
+- `-m <message>`: name the entry, so `git stash list` shows what it is.
+
+A stash exists only in this clone and is never pushed. To move work to another machine,
+commit it on a branch and push that.
 
 Example: `git stash -q -- server.py && python -m unittest tests.test_server; git stash pop -q`
 
 If `pop` hits a conflict, the entry stays on the stack (`git stash list`) and nothing is
 lost. Resolve the conflict, then `git stash drop`.
 
-*First used in 011*
+*First used in 011; `-u`, `-m` added in 016*
+
+### git for-each-ref: list branches and tags with a format
+
+`git for-each-ref [--sort=<key>] [--format=<format>] [<pattern>…]`. Lists refs (branches,
+tags), and unlike `git branch` lets you choose the fields and the order.
+
+- `--sort=-committerdate`: newest commit first (`-` reverses the order).
+- `--format='%(committerdate:short) %(refname:short) %(subject)'`: what to print for each ref.
+- `refs/heads refs/remotes`: only local and remote-tracking branches.
+
+Example: `git for-each-ref --sort=-committerdate --format='%(committerdate:short) %(refname:short)' refs/heads refs/remotes`
+
+*First used in 016*
+
+### git rev-list --count: count commits
+
+`git rev-list --count <a>..<b>`. Prints how many commits are in `<b>` but not in `<a>`.
+
+Example: `git rev-list --count master..origin/ci/github-actions`
+
+*First used in 016*
+
+### git reflog: show where HEAD has been
+
+`git reflog [-<n>] [--date=short]`. Lists every commit, checkout and pull that moved `HEAD` in
+**this clone**. It's local and is never pushed, so it can show which machine did the work.
+
+- `-<n>`: only the last n entries.
+- `--date=short`: show dates instead of `HEAD@{0}` positions.
+
+Example: `git reflog -15 --date=short`
+
+*First used in 016*
+
+### git worktree list: list working folders
+
+`git worktree list`. Shows every folder checked out from this repository and its branch.
+
+*First used in 016*
+
+### git fsck: check the repository and find lost commits
+
+`git fsck [--unreachable] [--no-reflogs]`. Checks the object database. It only reports, and
+changes nothing.
+
+- `--unreachable`: list objects that no branch or tag points to, such as a dropped stash.
+- `--no-reflogs`: don't count reflog entries as references, so more lost commits show up.
+
+Example: `git fsck --unreachable --no-reflogs`. Stash commits are named `WIP on <branch>`.
+
+*First used in 016*
+
+### git config: read a setting
+
+`git config [--get] <key>`. Prints a setting's value. With a second argument it would change
+the setting instead.
+
+Example: `git config user.email`, `git config --get core.autocrlf`
+
+*First used in 016*
+
+### gh api: call the GitHub API
+
+`gh api <endpoint> [--jq <filter>]`. Makes an authenticated GET request to the GitHub REST
+API. `gh` fills in the login for you.
+
+- `--jq <filter>`: keep only part of the JSON reply.
+
+Example: `gh api repos/lenasedkiewicz/zr-client-server/branches --jq '.[].name'`
+
+*First used in 016*
 
 ## WSL (Linux on Windows)
 
@@ -480,6 +556,15 @@ Example: `which openssl` → `/mingw64/bin/openssl` (Git Bash's copy)
 PowerShell: `(Get-Command openssl).Source` (errors if not found).
 
 *First used in 003*
+
+### tasklist: list running processes
+
+`tasklist`. Windows command that prints the running processes. It works in PowerShell and in
+Git Bash.
+
+Example: `tasklist | grep -i avast`. PowerShell: `Get-Process | Where-Object Name -Match avast`
+
+*First used in 016*
 
 ### ls: list files
 
