@@ -190,7 +190,7 @@ class Server:
         conn.settimeout(TLS_HANDSHAKE_TIMEOUT)
         try:
             tls_conn = self.tls_context.wrap_socket(conn, server_side=True)
-        except (ssl.SSLError, OSError) as error:
+        except OSError as error:
             logger.warning("TLS handshake failed: %s:%s (%s)", addr[0], addr[1], error)
             conn.close()
             return None

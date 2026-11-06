@@ -29,7 +29,7 @@ zr-client-server/
 ├── server.py      # TCP server
 ├── client.py      # interactive TCP client
 ├── run.py         # launcher: starts server + client together (step 7)
-├── config.py      # HOST, PORT, BUFFER_SIZE, ENCODING, SERVER_VERSION, SERVER_CREATED
+├── config.py      # HOST, PORT, ENCODING, SERVER_VERSION, SERVER_CREATED
 ├── protocol.py    # send_message / receive_message helpers (shared by both sides)
 ├── users.py       # UserStore: accounts with salted PBKDF2 hashes in users.json (steps 8–9, 11)
 ├── throttle.py    # LoginThrottle: temporary lockout after failed logins (step 12)

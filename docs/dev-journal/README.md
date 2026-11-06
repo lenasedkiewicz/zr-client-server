@@ -24,3 +24,4 @@ Steps 1–7 of `PLAN.md` were built before the journal started and have no entri
 - 013 · 2026-11-02 · [Unit-test request handling and the protocol without sockets](013-unit-tests-without-sockets.md): fix the upside-down test pyramid; BytesIO as a fake, Mock as a spy, end-to-end kept for wiring
 - 014 · 2026-11-03 · [Make the SemVer check strict](014-strict-semver-check.md): `\d` is Unicode and `$` forgives a trailing newline in Python; re.ASCII + fullmatch, and watch the negative test fail first
 - 016 · 2026-11-05 · [Log server events with logging instead of print](016-logging-instead-of-print.md): the entry point owns the configuration; NullHandler keeps imports quiet; a TLS 1.3 race that print had hidden
+- 017 · 2026-11-06 · [Drop redundant exception classes and an unused constant](017-drop-redundant-exception-classes.md): a parent already matches its subclasses; keep the narrowest class that is still correct, and a subclass only in its own clause

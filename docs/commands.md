@@ -178,6 +178,8 @@ commit; with two, compares the two commits.
 
 - `--stat`: show only a per-file summary of added and removed lines.
 - `-- <path>`: limit the diff to one file; `--` separates revisions from file names.
+- `-U<n>`: show n lines of context around each change. `git diff -U0` shows only the
+  changed lines, which suits a quick review of a small edit.
 
 Example: `git diff --stat`, `git diff server.py`, `git diff feature/admin -- .gitignore` (no
 output means the file is identical on both sides, so a merge will not conflict there)
@@ -188,7 +190,7 @@ be mangled by MSYS path conversion; the `<commit> -- <path>` form avoids it.
 During a merge, `git diff` with no arguments shows only the conflicted files, in a
 "combined" format with two `+`/`-` columns (one per parent).
 
-*First used in 001; commit and `--` forms added in 007; merge view added in 008*
+*First used in 001; commit and `--` forms added in 007; merge view added in 008; `-U<n>` added in 017*
 
 ### git add: stage changes
 
@@ -873,8 +875,11 @@ undo it.
 - `s/.../.../`: substitute. Any delimiter works, e.g. `s|a|b|` when the text contains `/`.
   Add `g` (`s/a/b/g`) to replace every match on a line, not just the first.
 - `;` joins several commands: `sed -i 's/^id: 001$/id: 007/; s/Step 8/Step 14/g' <file>`.
+- `/pattern/d`: delete every line that matches. Anchor it with `^` and `$` so it can't hit
+  other lines. Example: `sed -i '/^BUFFER_SIZE = 1024$/d' config.py`.
 
-PowerShell: `(Get-Content f) -replace 'old','new' | Set-Content -Encoding utf8 f`.
+PowerShell: `(Get-Content f) -replace 'old','new' | Set-Content -Encoding utf8 f`. For `d`:
+`(Get-Content f) | Where-Object { $_ -notmatch '^BUFFER_SIZE' } | Set-Content -Encoding utf8 f`.
 
 Without `-i`, `sed 's/old/new/'` is a filter: it edits text flowing through a pipe and
 leaves files alone. Example: `git show HEAD:server.py | sed 's/old/new/' > server.py`
@@ -883,7 +888,7 @@ leaves files alone. Example: `git show HEAD:server.py | sed 's/old/new/' > serve
 afterwards. PowerShell: `(git show HEAD:server.py) -replace 'old','new' | Set-Content
 -Encoding utf8 server.py`.
 
-*First used in 001; filter form added in 005; `g` and `;` added in 008*
+*First used in 001; filter form added in 005; `g` and `;` added in 008; `/pattern/d` added in 017*
 
 ### heredoc: multi-line input to a command
 
