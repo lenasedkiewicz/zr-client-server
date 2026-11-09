@@ -50,10 +50,12 @@ zr-client-server/
 - Request: `{"command": "uptime"}`
 - Response: `{"status": "ok", "command": "uptime", "data": {...}}` or
   `{"status": "error", "message": "Unknown command: foo"}`.
-- Helpers: `send_message(sock, dict)` and `receive_message(sock_file) -> dict | None`
+- Helpers: `send_message(sock, dict)` and `receive_message(sock_file) -> Any`
   (reads one line of bytes via `sock.makefile("rb")` and decodes it on its own, so a
-  malformed line is rejected without corrupting the next; returns `None` on closed
-  connection).
+  malformed line is rejected without corrupting the next). It returns any JSON value,
+  `null` included, and raises `ConnectionClosed` when the connection is closed, so the end
+  of the stream can't be mistaken for a message (step 16, task 4.1). The server, not
+  `protocol.py`, checks that a request is an object.
 
 ## Step 4 — server (`server.py`)
 - Class `Server` storing `start_time = time.time()` at startup.

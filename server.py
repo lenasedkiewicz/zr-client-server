@@ -26,7 +26,7 @@ from config import (
     TLS_HANDSHAKE_TIMEOUT,
     TLS_KEY_FILE,
 )
-from protocol import receive_message, send_message
+from protocol import ConnectionClosed, receive_message, send_message
 from throttle import LoginThrottle
 from users import UserStore
 
@@ -159,6 +159,8 @@ class Server:
             while self.running:
                 try:
                     request = receive_message(conn_file)
+                except ConnectionClosed:
+                    return  # the client hung up: a normal end of the session
                 except (ValueError, RecursionError):
                     # A malformed line (bad UTF-8, bad JSON, too-long int, too-deep nesting)
                     # rejects only that message: the line is already consumed, so the session
@@ -172,9 +174,7 @@ class Server:
                     logger.warning("Connection lost: %s:%s (%s)", addr[0], addr[1], error)
                     return
                 else:
-                    if request is None:
-                        return
-                    response = self.handle_request(request, session)
+                    response = self.handle_request(request, session)  # rejects non-objects
                 try:
                     send_message(conn, response)
                 except OSError as error:

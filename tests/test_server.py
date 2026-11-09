@@ -305,6 +305,10 @@ class ServerTest(unittest.TestCase):
     def test_invalid_utf8(self):
         self.assert_malformed_line_rejected(b"\xff\xfe not utf-8")
 
+    def test_null_message(self):
+        # json.loads("null") is None, which once looked like a closed connection: no reply.
+        self.assert_malformed_line_rejected(b"null")
+
     def test_integer_too_long_to_convert(self):
         # Over the default int-to-str limit of 4300 digits: a plain ValueError, not JSONDecodeError.
         self.assert_malformed_line_rejected(b'{"command": ' + b"1" * 5000 + b"}")

@@ -11,7 +11,7 @@ import unittest
 from unittest import mock
 
 from config import ENCODING
-from protocol import receive_message, send_message
+from protocol import ConnectionClosed, receive_message, send_message
 
 
 class SendMessageTest(unittest.TestCase):
@@ -48,10 +48,27 @@ class ReceiveMessageTest(unittest.TestCase):
         stream = io.BytesIO(b'{"command": "login"}\n{"command": "info"}\n')
         self.assertEqual(receive_message(stream), {"command": "login"})
         self.assertEqual(receive_message(stream), {"command": "info"})
-        self.assertIsNone(receive_message(stream))
+        with self.assertRaises(ConnectionClosed):
+            receive_message(stream)
 
-    def test_end_of_stream_returns_none(self):
-        self.assertIsNone(receive_message(io.BytesIO(b"")))
+    def test_end_of_stream_raises_connection_closed(self):
+        with self.assertRaises(ConnectionClosed):
+            receive_message(io.BytesIO(b""))
+
+    def test_null_is_a_message_not_end_of_stream(self):
+        stream = io.BytesIO(b'null\n{"command": "info"}\n')
+        self.assertIsNone(receive_message(stream))
+        self.assertEqual(receive_message(stream), {"command": "info"})
+
+    def test_any_json_value_is_returned_as_is(self):
+        # protocol.py frames messages; deciding what a valid *request* is belongs to the server.
+        for line, value in ((b"[]\n", []), (b'"x"\n', "x"), (b"1\n", 1), (b"false\n", False)):
+            with self.subTest(line=line):
+                self.assertEqual(receive_message(io.BytesIO(line)), value)
+
+    def test_connection_closed_is_not_caught_as_malformed_or_network_error(self):
+        # The server catches ValueError (malformed line) and OSError (network) separately.
+        self.assertFalse(issubclass(ConnectionClosed, (ValueError, OSError)))
 
     def test_invalid_json_raises_value_error(self):
         with self.assertRaises(ValueError):  # json.JSONDecodeError is a ValueError
