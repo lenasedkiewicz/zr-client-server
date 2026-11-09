@@ -7,6 +7,7 @@ Every connection is wrapped in TLS; the server refuses to start without a certif
 """
 
 import datetime
+import logging
 import socket
 import ssl
 import sys
@@ -16,6 +17,8 @@ import time
 from admin_setup import ensure_admin
 from config import (
     HOST,
+    LOG_FORMAT,
+    LOG_LEVEL,
     PORT,
     SERVER_CREATED,
     SERVER_VERSION,
@@ -26,6 +29,11 @@ from config import (
 from protocol import receive_message, send_message
 from throttle import LoginThrottle
 from users import UserStore
+
+logger = logging.getLogger(__name__)
+# Importing this module must stay silent: without a handler here, Python's last-resort
+# handler would print warnings to stderr in anything that imports it (the tests).
+logger.addHandler(logging.NullHandler())
 
 OPENSSL_COMMAND = (
     'MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes '
@@ -140,7 +148,7 @@ class Server:
             return {"status": "error", "command": name, "message": str(error)}
         return {"status": "ok", "command": name, "data": data}
 
-    def handle_client(self, conn):
+    def handle_client(self, conn, addr):
         """Serve one client until it disconnects or sends ``stop``.
 
         A network error (``OSError``, which includes ``ConnectionError`` and ``ssl.SSLError``)
@@ -160,7 +168,8 @@ class Server:
                         "status": "error",
                         "message": "Invalid message: expected one line of UTF-8 JSON",
                     }
-                except OSError:
+                except OSError as error:
+                    logger.warning("Connection lost: %s:%s (%s)", addr[0], addr[1], error)
                     return
                 else:
                     if request is None:
@@ -168,7 +177,8 @@ class Server:
                     response = self.handle_request(request, session)
                 try:
                     send_message(conn, response)
-                except OSError:
+                except OSError as error:
+                    logger.warning("Connection lost: %s:%s (%s)", addr[0], addr[1], error)
                     return
 
     def tls_handshake(self, conn, addr):
@@ -180,8 +190,8 @@ class Server:
         conn.settimeout(TLS_HANDSHAKE_TIMEOUT)
         try:
             tls_conn = self.tls_context.wrap_socket(conn, server_side=True)
-        except (ssl.SSLError, OSError) as error:
-            print(f"TLS handshake failed: {addr[0]}:{addr[1]} ({error})")
+        except OSError as error:
+            logger.warning("TLS handshake failed: %s:%s (%s)", addr[0], addr[1], error)
             conn.close()
             return None
         tls_conn.settimeout(None)  # back to blocking for the request loop
@@ -194,7 +204,7 @@ class Server:
         # Wake up periodically so Ctrl+C works on Windows, where a blocking accept()
         # is not interrupted by KeyboardInterrupt. Accepted sockets stay blocking.
         self.sock.settimeout(1.0)
-        print(f"Server listening on {self.address[0]}:{self.address[1]}")
+        logger.info("Server listening on %s:%s", self.address[0], self.address[1])
         try:
             while self.running:
                 try:
@@ -204,18 +214,20 @@ class Server:
                 tls_conn = self.tls_handshake(conn, addr)
                 if tls_conn is None:
                     continue
-                print(f"Client connected: {addr[0]}:{addr[1]}")
-                self.handle_client(tls_conn)
-                print(f"Client disconnected: {addr[0]}:{addr[1]}")
+                logger.info("Client connected: %s:%s", addr[0], addr[1])
+                self.handle_client(tls_conn, addr)
+                logger.info("Client disconnected: %s:%s", addr[0], addr[1])
         except KeyboardInterrupt:
-            print("\nInterrupted")
+            logger.info("Interrupted")
         finally:
             self.listening.clear()
             self.sock.close()
-            print("Server stopped")
+            logger.info("Server stopped")
 
 
 if __name__ == "__main__":
+    # Only the entry point configures logging; the handlers are the application's choice.
+    logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
     try:
         server = Server()
     except FileNotFoundError:

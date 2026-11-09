@@ -233,6 +233,8 @@ commit; with two, compares the two commits.
 
 - `--stat`: show only a per-file summary of added and removed lines.
 - `-- <path>`: limit the diff to one file; `--` separates revisions from file names.
+- `-U<n>`: show n lines of context around each change. `git diff -U0` shows only the
+  changed lines, which suits a quick review of a small edit.
 
 Example: `git diff --stat`, `git diff server.py`, `git diff feature/admin -- .gitignore` (no
 output means the file is identical on both sides, so a merge will not conflict there)
@@ -243,7 +245,7 @@ be mangled by MSYS path conversion; the `<commit> -- <path>` form avoids it.
 During a merge, `git diff` with no arguments shows only the conflicted files, in a
 "combined" format with two `+`/`-` columns (one per parent).
 
-*First used in 001; commit and `--` forms added in 007; merge view added in 008*
+*First used in 001; commit and `--` forms added in 007; merge view added in 008; `-U<n>` added in 017*
 
 ### git add: stage changes
 
@@ -366,6 +368,8 @@ and records a merge commit with two parents. On conflicts it stops: fix each fil
 it, then `git commit` finishes the merge.
 
 - `--no-edit`: accept git's default message instead of opening an editor.
+- `--no-commit`: stop before recording the merge, so you can check the result first.
+- `--no-ff`: always create a merge commit, even if git could just move the branch forward.
 - `--abort`: give up and return to the state before the merge. ⚠️ Discards the conflict
   resolutions you have made so far; safe when you want to start the merge over.
 
@@ -374,7 +378,19 @@ Conflict markers in a file: `<<<<<<< HEAD` (your branch), `=======`, `>>>>>>> <b
 
 Example: `git merge origin/master --no-edit` (on `feature/admin`, to update PR #1)
 
-*First used in 008*
+*First used in 008; `--no-commit`, `--no-ff` added in the PR #5 merge*
+
+### git clone: copy a repository
+
+`git clone [-q] <source> <folder>`. Creates a new folder with a full copy of the repository.
+The source can be a URL or a local path, so a throwaway local clone is a safe place to try a
+merge when your git is too old for `git merge-tree --write-tree`.
+
+- `-q`: quiet, no progress output.
+
+Example: `git clone -q . ../mergetest`
+
+*First used in the PR #5 merge*
 
 ### git merge-base: find the common ancestor
 
@@ -484,15 +500,19 @@ Example: `git status --short --ignored`
 
 ### git stash: put changes aside for a moment
 
-`git stash [push] [-q] [-- <path>…]` / `git stash pop [-q]`. Saves uncommitted changes on a
+`git stash [push] [-q] [-u] [-m <message>] [-- <path>…]` / `git stash pop [-q]`. Saves uncommitted changes on a
 stack and resets the files to the last commit; `pop` puts them back and drops the entry.
 
 - `-- <path>`: stash only these files and leave the others changed. Used here to undo just
   the fix in `server.py` while keeping the new tests, to prove the tests fail without it.
 - `-q`: quiet, no summary output.
+- `-u`: also stash untracked files, which are left in place by default.
 - `-m "<message>"`: label the entry, so `git stash list` shows what it is. Worth it when the
   stash will wait longer than a minute (e.g. unfinished work parked while another branch
   goes in).
+
+A stash exists only in this clone and is never pushed. To move work to another machine,
+commit it on a branch and push that.
 
 Example: `git stash push -m "task 3.1 logging WIP"`;
 `git stash -q -- server.py && python -m unittest tests.test_server; git stash pop -q`
@@ -500,7 +520,78 @@ Example: `git stash push -m "task 3.1 logging WIP"`;
 If `pop` hits a conflict, the entry stays on the stack (`git stash list`) and nothing is
 lost. Resolve the conflict, then `git stash drop`.
 
-*First used in 011; `-m` added in 015*
+*First used in 011; `-m` added in 015, `-u` added in 016*
+
+### git for-each-ref: list branches and tags with a format
+
+`git for-each-ref [--sort=<key>] [--format=<format>] [<pattern>…]`. Lists refs (branches,
+tags), and unlike `git branch` lets you choose the fields and the order.
+
+- `--sort=-committerdate`: newest commit first (`-` reverses the order).
+- `--format='%(committerdate:short) %(refname:short) %(subject)'`: what to print for each ref.
+- `refs/heads refs/remotes`: only local and remote-tracking branches.
+
+Example: `git for-each-ref --sort=-committerdate --format='%(committerdate:short) %(refname:short)' refs/heads refs/remotes`
+
+*First used in 016*
+
+### git rev-list --count: count commits
+
+`git rev-list --count <a>..<b>`. Prints how many commits are in `<b>` but not in `<a>`.
+
+Example: `git rev-list --count master..origin/ci/github-actions`
+
+*First used in 016*
+
+### git reflog: show where HEAD has been
+
+`git reflog [-<n>] [--date=short]`. Lists every commit, checkout and pull that moved `HEAD` in
+**this clone**. It's local and is never pushed, so it can show which machine did the work.
+
+- `-<n>`: only the last n entries.
+- `--date=short`: show dates instead of `HEAD@{0}` positions.
+
+Example: `git reflog -15 --date=short`
+
+*First used in 016*
+
+### git worktree list: list working folders
+
+`git worktree list`. Shows every folder checked out from this repository and its branch.
+
+*First used in 016*
+
+### git fsck: check the repository and find lost commits
+
+`git fsck [--unreachable] [--no-reflogs]`. Checks the object database. It only reports, and
+changes nothing.
+
+- `--unreachable`: list objects that no branch or tag points to, such as a dropped stash.
+- `--no-reflogs`: don't count reflog entries as references, so more lost commits show up.
+
+Example: `git fsck --unreachable --no-reflogs`. Stash commits are named `WIP on <branch>`.
+
+*First used in 016*
+
+### git config: read a setting
+
+`git config [--get] <key>`. Prints a setting's value. With a second argument it would change
+the setting instead.
+
+Example: `git config user.email`, `git config --get core.autocrlf`
+
+*First used in 016*
+
+### gh api: call the GitHub API
+
+`gh api <endpoint> [--jq <filter>]`. Makes an authenticated GET request to the GitHub REST
+API. `gh` fills in the login for you.
+
+- `--jq <filter>`: keep only part of the JSON reply.
+
+Example: `gh api repos/lenasedkiewicz/zr-client-server/branches --jq '.[].name'`
+
+*First used in 016*
 
 ## WSL (Linux on Windows)
 
@@ -558,6 +649,15 @@ Example: `which openssl` → `/mingw64/bin/openssl` (Git Bash's copy)
 PowerShell: `(Get-Command openssl).Source` (errors if not found).
 
 *First used in 003*
+
+### tasklist: list running processes
+
+`tasklist`. Windows command that prints the running processes. It works in PowerShell and in
+Git Bash.
+
+Example: `tasklist | grep -i avast`. PowerShell: `Get-Process | Where-Object Name -Match avast`
+
+*First used in 016*
 
 ### ls: list files
 
@@ -866,8 +966,11 @@ undo it.
 - `s/.../.../`: substitute. Any delimiter works, e.g. `s|a|b|` when the text contains `/`.
   Add `g` (`s/a/b/g`) to replace every match on a line, not just the first.
 - `;` joins several commands: `sed -i 's/^id: 001$/id: 007/; s/Step 8/Step 14/g' <file>`.
+- `/pattern/d`: delete every line that matches. Anchor it with `^` and `$` so it can't hit
+  other lines. Example: `sed -i '/^BUFFER_SIZE = 1024$/d' config.py`.
 
-PowerShell: `(Get-Content f) -replace 'old','new' | Set-Content -Encoding utf8 f`.
+PowerShell: `(Get-Content f) -replace 'old','new' | Set-Content -Encoding utf8 f`. For `d`:
+`(Get-Content f) | Where-Object { $_ -notmatch '^BUFFER_SIZE' } | Set-Content -Encoding utf8 f`.
 
 Without `-i`, `sed 's/old/new/'` is a filter: it edits text flowing through a pipe and
 leaves files alone. Example: `git show HEAD:server.py | sed 's/old/new/' > server.py`
@@ -876,7 +979,7 @@ leaves files alone. Example: `git show HEAD:server.py | sed 's/old/new/' > serve
 afterwards. PowerShell: `(git show HEAD:server.py) -replace 'old','new' | Set-Content
 -Encoding utf8 server.py`.
 
-*First used in 001; filter form added in 005; `g` and `;` added in 008*
+*First used in 001; filter form added in 005; `g` and `;` added in 008; `/pattern/d` added in 017*
 
 ### heredoc: multi-line input to a command
 

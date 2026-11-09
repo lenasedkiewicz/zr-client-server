@@ -2,7 +2,6 @@
 
 HOST = "127.0.0.1"
 PORT = 65432
-BUFFER_SIZE = 1024
 ENCODING = "utf-8"
 
 SERVER_VERSION = "0.1.0-alpha"
@@ -27,3 +26,7 @@ TLS_CERT_FILE = "server.crt"
 TLS_KEY_FILE = "server.key"
 # A client that connects but never finishes the handshake must not block the accept loop.
 TLS_HANDSHAKE_TIMEOUT = 5.0
+
+# Server logging, applied only when server.py runs as a script
+LOG_LEVEL = "INFO"
+LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"

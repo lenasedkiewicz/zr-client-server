@@ -55,7 +55,7 @@ def main():
         raw_sock.close()
         print(f"Server certificate rejected: {error.verify_message}")
         return
-    except (ssl.SSLError, OSError) as error:
+    except OSError as error:
         raw_sock.close()
         print(f"TLS handshake failed: {error}")
         return
@@ -82,7 +82,7 @@ def main():
             try:
                 send_message(sock, request)
                 response = receive_message(sock_file)
-            except (ConnectionError, OSError):
+            except OSError:
                 response = None
             if response is None:
                 print("Connection closed by the server")

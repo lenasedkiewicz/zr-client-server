@@ -29,7 +29,7 @@ zr-client-server/
 ├── server.py      # TCP server
 ├── client.py      # interactive TCP client
 ├── run.py         # launcher: starts server + client together (step 7)
-├── config.py      # HOST, PORT, BUFFER_SIZE, ENCODING, SERVER_VERSION, SERVER_CREATED
+├── config.py      # HOST, PORT, ENCODING, SERVER_VERSION, SERVER_CREATED
 ├── protocol.py    # send_message / receive_message helpers (shared by both sides)
 ├── users.py       # UserStore: accounts with salted PBKDF2 hashes in users.json (steps 8–9, 11)
 ├── throttle.py    # LoginThrottle: temporary lockout after failed logins (step 12)
@@ -175,7 +175,7 @@ salted PBKDF2 hashes; this adds the in-transit layer (defence in depth).
     and sends nothing must not freeze the single-client accept loop.
   - Handshake failure (`ssl.SSLError`, `OSError`) → print one line, return to `accept()`.
     This also covers `run.py`'s readiness probe, which connects with plain TCP and closes.
-  - Print "Client connected" only after a successful handshake.
+  - Log "Client connected" only after a successful handshake.
   - **Fail closed:** cert or key missing → exit with a message showing the `openssl`
     command. Never fall back to plain text.
 - **Client:** `ssl.create_default_context(cafile=TLS_CERT_FILE)` — certificate and hostname
@@ -329,6 +329,11 @@ clean-ups. Full plan: [`docs/plans/001-code-review-2026-10-21.md`](docs/plans/00
   still gets an answer.
 - **Out of scope:** changing the concurrency model (one client at a time stays; limits and
   timeouts are added instead). YAGNI.
+- **Logging (task 3.1):** server events go through `logging`, configured only under
+  `__main__` in `server.py` (`LOG_LEVEL`, `LOG_FORMAT` in `config.py`); `INFO` for
+  connect/disconnect and start/stop, `WARNING` for a failed handshake or a lost connection.
+  Requests are never logged, because `login` and `register` carry passwords. Messages for the
+  person at the terminal (missing certificate, admin setup) stay `print`.
 - **Also planned:** repo-specific checklist skills (`error-handling-review`,
   `negative-tests`, `trust-boundary-check`, `resource-lifecycle`, `logging-conventions`,
   `cross-platform-check`, `docs-drift-check`), built after the batch each one encodes.
