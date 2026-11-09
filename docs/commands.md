@@ -168,6 +168,61 @@ PowerShell: not needed (no path conversion). To set a variable for one command:
 
 *First used in 003*
 
+### openssl x509: print a certificate's details
+
+`openssl x509 -in <crt> -noout [-subject -issuer -dates -fingerprint] [-ext <names>]`. Reads
+a certificate and prints the parts you ask for.
+
+- `-noout`: don't print the encoded certificate itself.
+- `-subject` / `-issuer`: who the certificate is for, and who signed it. Self-signed means
+  both are the same.
+- `-dates`: `notBefore` / `notAfter`; `-fingerprint`: a hash that identifies the exact
+  certificate.
+- `-ext basicConstraints,keyUsage,...`: print only these X.509 extensions (OpenSSL 1.1.1+).
+
+Example: `openssl x509 -in "$TEMP/sent.pem" -noout -subject -issuer -dates -fingerprint`
+(the issuer of the certificate the server "sent" was Avast, not us)
+
+PowerShell: see the `openssl` PATH note under [openssl req](#openssl-req-create-a-self-signed-certificate).
+
+*First used in 015*
+
+### openssl verify: check a certificate against trusted ones
+
+`openssl verify [-x509_strict] -CAfile <trusted.crt> <crt>`. Builds and checks the chain of
+`<crt>` against the certificates in `-CAfile`; prints `OK` or the reason it fails.
+
+- `-x509_strict`: apply the stricter RFC 5280 checks (Python turns these on by default).
+
+Example: `openssl verify -x509_strict -CAfile tests/certs/test-server.crt tests/certs/test-server.crt`
+
+Note: Git Bash's `openssl` (1.1.1 here) is not the OpenSSL inside Python (3.5 in Python
+3.14). Check `python -c "import ssl; print(ssl.OPENSSL_VERSION)"` before blaming a version.
+
+*First used in 015*
+
+## Network
+
+### curl: make an HTTP request
+
+`curl [-s] [-S] [-m N] [-o <file>] [-w <format>] <url>`. Downloads a URL and prints the body.
+
+- `-s`: silent, no progress bar; `-S` with `-s`: still show errors.
+- `-m N`: give up after N seconds.
+- `-o /dev/null -w "%{http_code}
+"`: throw the body away and print only the status code.
+
+Example: `curl -sS -m 20 -o /dev/null -w "%{http_code}
+" https://api.github.com/repos/actions/checkout/releases/latest`
+
+`curl: (60) SSL certificate problem: unable to get local issuer certificate` means curl
+doesn't trust the certificate it received. Here Avast's HTTPS scanning had replaced it.
+
+PowerShell: `curl.exe` (plain `curl` is an alias for `Invoke-WebRequest` in Windows
+PowerShell 5.1).
+
+*First used in 015*
+
 ## Git
 
 ### git diff: show unstaged changes
@@ -273,9 +328,11 @@ remote-tracking branches (`origin/master`, ...) without touching your own branch
 - `--all`: fetch every configured remote, not just `origin`.
 - `--prune`: delete remote-tracking branches whose branch was deleted on the remote.
 
+- `--quiet`: no progress output.
+
 Example: `git fetch --all --prune` before merging, so `origin/master` is current.
 
-*First used in 008*
+*First used in 008; `--quiet` added in 015*
 
 ### git pull: fetch and update the current branch
 
@@ -311,6 +368,8 @@ and records a merge commit with two parents. On conflicts it stops: fix each fil
 it, then `git commit` finishes the merge.
 
 - `--no-edit`: accept git's default message instead of opening an editor.
+- `--no-commit`: stop before recording the merge, so you can check the result first.
+- `--no-ff`: always create a merge commit, even if git could just move the branch forward.
 - `--abort`: give up and return to the state before the merge. ⚠️ Discards the conflict
   resolutions you have made so far; safe when you want to start the merge over.
 
@@ -319,7 +378,19 @@ Conflict markers in a file: `<<<<<<< HEAD` (your branch), `=======`, `>>>>>>> <b
 
 Example: `git merge origin/master --no-edit` (on `feature/admin`, to update PR #1)
 
-*First used in 008*
+*First used in 008; `--no-commit`, `--no-ff` added in the PR #5 merge*
+
+### git clone: copy a repository
+
+`git clone [-q] <source> <folder>`. Creates a new folder with a full copy of the repository.
+The source can be a URL or a local path, so a throwaway local clone is a safe place to try a
+merge when your git is too old for `git merge-tree --write-tree`.
+
+- `-q`: quiet, no progress output.
+
+Example: `git clone -q . ../mergetest`
+
+*First used in the PR #5 merge*
 
 ### git merge-base: find the common ancestor
 
@@ -347,9 +418,25 @@ arguments it pushes the current branch to its upstream. A plain push only adds c
 ⚠️ `--force` overwrites the remote branch and is only safe on a branch nobody else uses
 (it is what a rebase of a pushed branch would need).
 
-Example: `git push origin feature/admin` (updates PR #1)
+- `-u`: also set the remote branch as the upstream of the local one, so later plain
+  `git push` / `git pull` know where to go. Use it on a branch's first push.
 
-*First used in 008*
+Example: `git push origin feature/admin` (updates PR #1); `git push -u origin ci/github-actions`
+(first push of a new branch)
+
+*First used in 008; `-u` added in 015*
+
+### git ls-remote: list a remote's branches and tags
+
+`git ls-remote [--tags] <url> [<pattern>]`. Lists refs and the commit each points to, without
+cloning. Useful to find the commit SHA behind a tag.
+
+Example: `git ls-remote --tags https://github.com/actions/checkout.git 'v*'`
+
+It goes over HTTPS, so here it failed the same way as `curl` (Avast); the GitHub API via a
+browser gave the SHA instead.
+
+*First used in 015*
 
 ### gh pr view: show a pull request
 
@@ -420,17 +507,20 @@ stack and resets the files to the last commit; `pop` puts them back and drops th
   the fix in `server.py` while keeping the new tests, to prove the tests fail without it.
 - `-q`: quiet, no summary output.
 - `-u`: also stash untracked files, which are left in place by default.
-- `-m <message>`: name the entry, so `git stash list` shows what it is.
+- `-m "<message>"`: label the entry, so `git stash list` shows what it is. Worth it when the
+  stash will wait longer than a minute (e.g. unfinished work parked while another branch
+  goes in).
 
 A stash exists only in this clone and is never pushed. To move work to another machine,
 commit it on a branch and push that.
 
-Example: `git stash -q -- server.py && python -m unittest tests.test_server; git stash pop -q`
+Example: `git stash push -m "task 3.1 logging WIP"`;
+`git stash -q -- server.py && python -m unittest tests.test_server; git stash pop -q`
 
 If `pop` hits a conflict, the entry stays on the stack (`git stash list`) and nothing is
 lost. Resolve the conflict, then `git stash drop`.
 
-*First used in 011; `-u`, `-m` added in 016*
+*First used in 011; `-m` added in 015, `-u` added in 016*
 
 ### git for-each-ref: list branches and tags with a format
 
@@ -510,7 +600,8 @@ Example: `gh api repos/lenasedkiewicz/zr-client-server/branches --jq '.[].name'`
 `wsl.exe [-l -q] [-d <distro> -- <command>]`. Runs Linux commands from Windows. Used here
 to test POSIX file permissions, which Windows does not have.
 
-- `-l -q`: list installed distributions, names only.
+- `-l -q`: list installed distributions, names only. `-l -v` adds state and WSL version;
+  "has no installed distributions" means WSL itself works but no Linux is installed.
 - `-d <distro>`: pick the distribution (e.g. `Ubuntu`).
 - `-- <command>`: everything after `--` runs inside Linux; `bash -c '<script>'` runs several
   commands at once.
@@ -523,7 +614,7 @@ Example: `wsl.exe -d Ubuntu -- bash -c 'cd /tmp/zr && python3 -m unittest discov
 
 PowerShell: the same command (`wsl` without `.exe` also works).
 
-*First used in 004*
+*First used in 004; `-l -v` added in 015*
 
 ### umask: show the default permission mask
 

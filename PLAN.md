@@ -34,6 +34,7 @@ zr-client-server/
 ├── users.py       # UserStore: accounts with salted PBKDF2 hashes in users.json (steps 8–9, 11)
 ├── throttle.py    # LoginThrottle: temporary lockout after failed logins (step 12)
 ├── admin_setup.py # ensure_admin: create the first admin on first start (step 13)
+├── .github/workflows/tests.yml  # CI: tests on Linux + Windows (step 17)
 ├── tests/
 │   ├── certs/           # test-only TLS certificates (step 10)
 │   └── test_server.py   # unittest (stdlib) end-to-end tests
@@ -338,11 +339,30 @@ clean-ups. Full plan: [`docs/plans/001-code-review-2026-10-21.md`](docs/plans/00
   `cross-platform-check`, `docs-drift-check`), built after the batch each one encodes.
 - **Commit:** `docs: plan fixes for the 2026-10-21 code review (step 16)`.
 
+## Step 17 — continuous integration (GitHub Actions)
+The suite can't run on the owner's Windows machine: Avast's HTTPS scanning intercepts every
+local TLS connection (IPv4, IPv6, even `socketpair()`) and re-signs it, and the pinned client
+correctly rejects it. Test-only workarounds (trust the Avast root, turn off verification)
+would break the tests they're meant to run, so the tests move to a clean machine instead.
+
+- **`.github/workflows/tests.yml`:** on every push and pull request, run
+  `python -m unittest discover tests -v`.
+- **Matrix:** `ubuntu-latest` and `windows-latest` × Python `3.10` (the promised minimum;
+  end of life in October 2026, so raising it is a later decision) and `3.14` (current).
+  Linux runs the owner-only file mode test that Windows skips; Windows checks the
+  Windows-only paths. `fail-fast: false`, so one red job doesn't hide the others.
+- **Security:** `permissions: contents: read`; actions pinned to a full commit SHA with the
+  version in a comment (a tag can be moved), `timeout-minutes: 10` against a hung socket test.
+- **Stdlib-only rule:** unaffected. The actions are CI tooling, not app dependencies.
+- **README:** status badge, CI note, and the antivirus symptom with its fixes.
+- **Commit:** `ci: run the test suite on GitHub Actions (Linux and Windows)`.
+
 ## Verification
 1. `python server.py` in terminal 1, `python client.py` in terminal 2.
 2. Type `help`, `info`, `uptime` (twice — value grows), `foo` (error) → check JSON output.
 3. Type `stop` → both processes exit cleanly.
-4. `python -m unittest discover tests` → all pass.
+4. `python -m unittest discover tests` → all pass. *(step 17)* The GitHub Actions run for
+   the branch is green on all four jobs.
 5. `python run.py` → a server window opens and the client prompt appears in the current
    terminal; `stop` closes both. Run `python run.py` again while a server is already
    running → it reuses that server instead of starting a second one.
