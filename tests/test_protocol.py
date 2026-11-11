@@ -55,6 +55,24 @@ class ReceiveMessageTest(unittest.TestCase):
         with self.assertRaises(ConnectionClosed):
             receive_message(io.BytesIO(b""))
 
+    def test_clean_close_discards_nothing(self):
+        with self.assertRaises(ConnectionClosed) as caught:
+            receive_message(io.BytesIO(b""))
+        self.assertEqual(caught.exception.discarded, 0)
+
+    def test_unterminated_final_line_is_not_a_message(self):
+        # Valid JSON, but no "\n": the peer closed mid-message, so it must not run.
+        with self.assertRaises(ConnectionClosed) as caught:
+            receive_message(io.BytesIO(b'{"command": "stop"}'))
+        self.assertEqual(caught.exception.discarded, len(b'{"command": "stop"}'))
+
+    def test_complete_line_before_an_unterminated_one_is_read(self):
+        stream = io.BytesIO(b'{"command": "info"}\n{"command": "stop"}')
+        self.assertEqual(receive_message(stream), {"command": "info"})
+        with self.assertRaises(ConnectionClosed) as caught:
+            receive_message(stream)
+        self.assertEqual(caught.exception.discarded, len(b'{"command": "stop"}'))
+
     def test_null_is_a_message_not_end_of_stream(self):
         stream = io.BytesIO(b'null\n{"command": "info"}\n')
         self.assertIsNone(receive_message(stream))

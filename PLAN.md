@@ -56,6 +56,10 @@ zr-client-server/
   `null` included, and raises `ConnectionClosed` when the connection is closed, so the end
   of the stream can't be mistaken for a message (step 16, task 4.1). The server, not
   `protocol.py`, checks that a request is an object.
+- **No `\n`, no message** (task 4.2): a final line cut off by the close also raises
+  `ConnectionClosed`, with `discarded` set to its size, even if it would parse. The server
+  logs the size (never the bytes, which may hold a password) and tries one error reply,
+  ignoring a failed send. See concept 004 for why we reject instead of tolerating it.
 
 ## Step 4 — server (`server.py`)
 - Class `Server` storing `start_time = time.time()` at startup.

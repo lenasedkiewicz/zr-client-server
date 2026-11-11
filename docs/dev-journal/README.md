@@ -27,3 +27,4 @@ Steps 1–7 of `PLAN.md` were built before the journal started and have no entri
 - 016 · 2026-11-05 · [Log server events with logging instead of print](016-logging-instead-of-print.md): the entry point owns the configuration; NullHandler keeps imports quiet; a TLS 1.3 race that print had hidden
 - 017 · 2026-11-06 · [Drop redundant exception classes and an unused constant](017-drop-redundant-exception-classes.md): a parent already matches its subclasses; keep the narrowest class that is still correct, and a subclass only in its own clause
 - 018 · 2026-11-09 · [Tell a closed connection apart from a null message](018-closed-connection-vs-null-message.md): the semipredicate problem; end of stream raised out of band, so `null` is just data the server rejects
+- 019 · 2026-11-11 · [Reject an unterminated final frame](019-reject-unterminated-final-frame.md): no `\n`, no message; log the size, never the bytes; a best-effort reply that fails quietly
