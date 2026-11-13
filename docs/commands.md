@@ -483,6 +483,23 @@ Example: `gh pr view 1 --json headRefName,baseRefName,mergeable,title`;
 
 *First used in 008; `--jq`, `statusCheckRollup` added in 018*
 
+### gh pr create: open a pull request
+
+`gh pr create --base <branch> --title <title> --body-file <file>`. GitHub CLI: opens a pull
+request from the current branch. Push the branch first (`git push -u`), otherwise gh asks
+whether to push it for you.
+
+- `--base <branch>`: the branch to merge into (here `master`).
+- `--title <title>`: the PR title.
+- `--body-file <file>`: read the PR description from a file. This is easier than `--body`
+  for a multi-line Markdown body, because you avoid quoting problems in PowerShell and Bash.
+
+Example: `gh pr create --base master --title "Batch 4: protocol contract" --body-file pr-body.md`
+
+PowerShell: the same command.
+
+*First used with `chore: bump version to 0.1.1-alpha` (no journal entry)*
+
 ### gh pr list: list pull requests
 
 `gh pr list [--head <branch>] [--state open|closed|merged|all]`. GitHub CLI: lists pull

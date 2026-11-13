@@ -69,7 +69,7 @@ zr-client-server/
   this same dict, so it always lists exactly the implemented commands.
 - Handlers:
   - `uptime` → `{"uptime_seconds": 12.34, "uptime": "0:00:12"}`
-  - `info` → `{"version": "0.1.0-alpha", "created": "2026-10-01"}`
+  - `info` → `{"version": "0.1.1-alpha", "created": "2026-10-01"}`
   - `help` → `{"uptime": "...", "info": "...", "help": "...", "stop": "..."}`
   - `stop` → sends `{"status":"ok","command":"stop","data":{"message":"Server stopping"}}`,
     then closes the connection and the listening socket and exits the loop.
