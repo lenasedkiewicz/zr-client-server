@@ -16,7 +16,7 @@ from unittest import mock
 
 from client import make_client_context
 from config import ENCODING, HOST, ROLE_USER, SERVER_CREATED, SERVER_VERSION, USERS_FILE_MODE
-from protocol import receive_message, send_message
+from protocol import ConnectionClosed, receive_message, send_message
 from server import Server, make_server_context
 from throttle import LoginThrottle
 from users import UserStore
@@ -172,6 +172,28 @@ class DroppedClientLoggingTest(unittest.TestCase):
                 mock.patch("server.send_message", side_effect=ConnectionResetError("reset")):
             self.assert_drop_logged_as_warning()
 
+    def test_unterminated_message_gets_a_best_effort_error_reply(self):
+        with mock.patch("server.receive_message", side_effect=ConnectionClosed(discarded=19)), \
+                mock.patch("server.send_message") as send:
+            self.assert_drop_logged_as_warning()
+        send.assert_called_once()
+        response = send.call_args.args[1]
+        self.assertEqual(response["status"], "error")
+        self.assertIn("newline", response["message"])
+
+    def test_unterminated_message_reply_to_a_gone_client_is_not_a_second_warning(self):
+        # The client has hung up, so a failed reply is expected: one warning, no traceback.
+        with mock.patch("server.receive_message", side_effect=ConnectionClosed(discarded=19)), \
+                mock.patch("server.send_message", side_effect=BrokenPipeError("gone")):
+            self.assert_drop_logged_as_warning()
+
+    def test_clean_close_is_not_logged_as_a_warning(self):
+        with mock.patch("server.receive_message", side_effect=ConnectionClosed()), \
+                mock.patch("server.send_message") as send, \
+                self.assertNoLogs("server", level="WARNING"):
+            self.server.handle_client(mock.MagicMock(), self.ADDR)
+        send.assert_not_called()
+
 
 class ServerTest(unittest.TestCase):
     """End-to-end: a real server thread, TLS and a client socket."""
@@ -304,6 +326,10 @@ class ServerTest(unittest.TestCase):
 
     def test_invalid_utf8(self):
         self.assert_malformed_line_rejected(b"\xff\xfe not utf-8")
+
+    def test_null_message(self):
+        # json.loads("null") is None, which once looked like a closed connection: no reply.
+        self.assert_malformed_line_rejected(b"null")
 
     def test_integer_too_long_to_convert(self):
         # Over the default int-to-str limit of 4300 digits: a plain ValueError, not JSONDecodeError.
@@ -463,6 +489,17 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(response["command"], "stop")
         self.thread.join(timeout=5)
         self.assertFalse(self.thread.is_alive())
+
+    def test_stop_without_final_newline_does_not_stop_the_server(self):
+        # "No \n, no message": a complete JSON object cut off by a close must not run.
+        self.login_as()
+        with self.assertLogs("server", level="WARNING") as logs:
+            self.sock.sendall(b'{"command": "stop"}')
+            self.disconnect()
+            self.assert_server_still_serves()  # served only after the old session has ended
+        self.assertTrue(self.thread.is_alive())
+        self.assertIn("unterminated", logs.output[0])
+        self.assertNotIn("stop", logs.output[0])  # the content is never logged
 
     def assert_server_still_serves(self):
         self.connect()

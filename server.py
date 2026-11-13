@@ -26,7 +26,7 @@ from config import (
     TLS_HANDSHAKE_TIMEOUT,
     TLS_KEY_FILE,
 )
-from protocol import receive_message, send_message
+from protocol import ConnectionClosed, receive_message, send_message
 from throttle import LoginThrottle
 from users import UserStore
 
@@ -159,6 +159,10 @@ class Server:
             while self.running:
                 try:
                     request = receive_message(conn_file)
+                except ConnectionClosed as closed:
+                    if closed.discarded:
+                        self.reject_unterminated_message(conn, addr, closed.discarded)
+                    return  # the client hung up: the session is over either way
                 except (ValueError, RecursionError):
                     # A malformed line (bad UTF-8, bad JSON, too-long int, too-deep nesting)
                     # rejects only that message: the line is already consumed, so the session
@@ -172,14 +176,33 @@ class Server:
                     logger.warning("Connection lost: %s:%s (%s)", addr[0], addr[1], error)
                     return
                 else:
-                    if request is None:
-                        return
-                    response = self.handle_request(request, session)
+                    response = self.handle_request(request, session)  # rejects non-objects
                 try:
                     send_message(conn, response)
                 except OSError as error:
                     logger.warning("Connection lost: %s:%s (%s)", addr[0], addr[1], error)
                     return
+
+    def reject_unterminated_message(self, conn, addr, discarded):
+        """Log a message cut off by the client's close, and tell the client if it still listens.
+
+        Logs only the size, never the bytes: a cut-off ``login`` or ``register`` carries a
+        password. The reply is best effort. A client that only half-closed
+        (``shutdown(SHUT_WR)``) can still read it, but one that fully closed is gone, so a
+        failed send is expected and logged at DEBUG instead of as a second warning.
+        """
+        logger.warning(
+            "Dropped an unterminated message: %s:%s (%d bytes, no final newline)",
+            addr[0], addr[1], discarded,
+        )
+        response = {
+            "status": "error",
+            "message": "Incomplete message: no final newline, so it was not run",
+        }
+        try:
+            send_message(conn, response)
+        except OSError as error:
+            logger.debug("Could not send the reply to %s:%s (%s)", addr[0], addr[1], error)
 
     def tls_handshake(self, conn, addr):
         """Wrap an accepted connection in TLS; return ``None`` if the handshake fails.

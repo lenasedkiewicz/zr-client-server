@@ -6,7 +6,7 @@ import socket
 import ssl
 
 from config import HOST, PORT, TLS_CERT_FILE
-from protocol import receive_message, send_message
+from protocol import ConnectionClosed, receive_message, send_message
 
 
 def build_request(line):
@@ -82,9 +82,7 @@ def main():
             try:
                 send_message(sock, request)
                 response = receive_message(sock_file)
-            except OSError:
-                response = None
-            if response is None:
+            except (ConnectionClosed, OSError):
                 print("Connection closed by the server")
                 return
 

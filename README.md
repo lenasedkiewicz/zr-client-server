@@ -112,6 +112,9 @@ Passwords are typed without being shown. Until you log in, only `help`, `registe
 - TLS (1.2 or newer) over TCP on `127.0.0.1:65432` (configurable in `config.py`), UTF-8
   encoding. A client that does not finish the TLS handshake within 5 seconds is dropped.
 - Inside TLS, each message is a single JSON object terminated with a newline (`\n`).
+  The newline is required: if the connection closes before it arrives, the bytes are
+  discarded unread, even if they are valid JSON. The server logs the drop and sends a
+  best-effort error reply, which only a client still reading can receive.
 
 Request:
 

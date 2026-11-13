@@ -305,9 +305,12 @@ PowerShell: the same command.
 Example: `git log --oneline | head -15`; `git log --oneline origin/master..origin/feature/admin`
 (the PR's own commits)
 
+- `-S'<text>' -- <path>`: only commits that added or removed `<text>` in that file (the
+  "pickaxe"). Used to find when test passwords first appeared, for a GitGuardian triage.
+
 PowerShell: the same; use `| Select-Object -First 15` instead of `head`.
 
-*First used in 005; `a..b` added in 008*
+*First used in 005; `a..b` added in 008; `-S` added in 018*
 
 ### git branch --show-current: print the current branch
 
@@ -318,7 +321,13 @@ one, and `-a` adds the remote-tracking ones (`remotes/origin/...`).
 Example: checking that a change goes onto `master` before editing; `git branch -a` after a
 fetch to see `origin/feature/admin`.
 
-*First used in 007; `-a` added in 008*
+- `-vv`: also show each branch's last commit and the remote branch it tracks.
+- `-d <branch>…`: delete local branches. Safe: git refuses if a branch has commits that
+  aren't merged. ⚠️ `-D` deletes anyway and can lose commits; use it only when you mean it.
+
+Example: `git branch -d feature/admin test/test-foundations` after their PRs were merged.
+
+*First used in 007; `-a` added in 008; `-vv`, `-d` added in 018*
 
 ### git fetch: download new commits from the remote
 
@@ -399,7 +408,21 @@ sides against this commit.
 
 Example: `git merge-base origin/master origin/feature/admin` → `3eafafb…`
 
-*First used in 008*
+- `--is-ancestor <a> <b>`: print nothing, exit with 0 if `<a>` is already in `<b>`'s history
+  (fully merged), 1 if not. Made for scripts: `git merge-base --is-ancestor feature/admin
+  master && echo merged`.
+
+*First used in 008; `--is-ancestor` added in 018*
+
+### git cherry: find commits not yet upstream
+
+`git cherry <upstream> <branch>`. Lists the branch's commits, marked `+` if no commit with the
+same changes is in `<upstream>`, `-` if one is. Unlike `git log a..b` it compares the changes,
+so a commit that reached `master` by a squash or cherry-pick shows as `-`.
+
+Example: `git cherry master feature/admin | grep -c '^+'` → `0` (nothing left to merge)
+
+*First used in 018*
 
 ### git mv: rename a tracked file
 
@@ -421,10 +444,13 @@ arguments it pushes the current branch to its upstream. A plain push only adds c
 - `-u`: also set the remote branch as the upstream of the local one, so later plain
   `git push` / `git pull` know where to go. Use it on a branch's first push.
 
-Example: `git push origin feature/admin` (updates PR #1); `git push -u origin ci/github-actions`
-(first push of a new branch)
+- ⚠️ `--delete <branch>…`: delete branches on the remote, for everyone. Safe for a branch
+  whose PR is merged; GitHub's "Restore branch" button on the PR can bring it back.
 
-*First used in 008; `-u` added in 015*
+Example: `git push origin feature/admin` (updates PR #1); `git push -u origin ci/github-actions`
+(first push of a new branch); `git push origin --delete ci/github-actions`
+
+*First used in 008; `-u` added in 015; `--delete` added in 018*
 
 ### git ls-remote: list a remote's branches and tags
 
@@ -436,7 +462,10 @@ Example: `git ls-remote --tags https://github.com/actions/checkout.git 'v*'`
 It goes over HTTPS, so here it failed the same way as `curl` (Avast); the GitHub API via a
 browser gave the SHA instead.
 
-*First used in 015*
+- `--heads origin`: list the branches that really exist on GitHub now. Your
+  `origin/...` refs are only a copy from the last fetch.
+
+*First used in 015; `--heads` added in 018*
 
 ### gh pr view: show a pull request
 
@@ -445,9 +474,31 @@ browser gave the SHA instead.
 - `--json headRefName,baseRefName,mergeable,title`: print only those fields as JSON;
   `mergeable` is `CONFLICTING` when GitHub cannot merge it automatically.
 
-Example: `gh pr view 1 --json headRefName,baseRefName,mergeable,title`
+- `--jq <filter>`: keep only part of the JSON, as in [gh api](#gh-api-call-the-github-api).
+  `statusCheckRollup` lists the PR's checks (CI jobs, GitGuardian) with their result, and
+  `mergeStateStatus` is `UNSTABLE` while a check fails or is still running.
 
-*First used in 008*
+Example: `gh pr view 1 --json headRefName,baseRefName,mergeable,title`;
+`gh pr view 5 --json mergeable,mergeStateStatus,statusCheckRollup`
+
+*First used in 008; `--jq`, `statusCheckRollup` added in 018*
+
+### gh pr create: open a pull request
+
+`gh pr create --base <branch> --title <title> --body-file <file>`. GitHub CLI: opens a pull
+request from the current branch. Push the branch first (`git push -u`), otherwise gh asks
+whether to push it for you.
+
+- `--base <branch>`: the branch to merge into (here `master`).
+- `--title <title>`: the PR title.
+- `--body-file <file>`: read the PR description from a file. This is easier than `--body`
+  for a multi-line Markdown body, because you avoid quoting problems in PowerShell and Bash.
+
+Example: `gh pr create --base master --title "Batch 4: protocol contract" --body-file pr-body.md`
+
+PowerShell: the same command.
+
+*First used with `chore: bump version to 0.1.1-alpha` (no journal entry)*
 
 ### gh pr list: list pull requests
 
@@ -455,10 +506,14 @@ Example: `gh pr view 1 --json headRefName,baseRefName,mergeable,title`
 requests; by default only open ones.
 
 - `--head <branch>`: only PRs opened from this branch. Empty output means it has no open PR.
+- `--limit <n>`: at most n PRs (default 30).
+- `--json <fields> --jq <filter>`: pick fields and format them, e.g. each PR's state and
+  head commit, to check that every branch's PR is merged.
 
-Example: `gh pr list --head fix/server-survives-bad-client`
+Example: `gh pr list --head fix/server-survives-bad-client`;
+`gh pr list --state all --limit 10 --json number,headRefName,state --jq '.[]|"\(.number) \(.state) \(.headRefName)"'`
 
-*First used in 011*
+*First used in 011; `--limit`, `--json`, `--jq` added in 018*
 
 ### git ls-tree: list files in a commit
 
