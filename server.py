@@ -19,6 +19,7 @@ from config import (
     HOST,
     LOG_FORMAT,
     LOG_LEVEL,
+    MAX_MESSAGE_SIZE,
     PORT,
     SERVER_CREATED,
     SERVER_VERSION,
@@ -26,7 +27,7 @@ from config import (
     TLS_HANDSHAKE_TIMEOUT,
     TLS_KEY_FILE,
 )
-from protocol import ConnectionClosed, receive_message, send_message
+from protocol import ConnectionClosed, MessageTooLong, receive_message, send_message
 from throttle import LoginThrottle
 from users import UserStore
 
@@ -51,8 +52,17 @@ def make_server_context(cert_file=TLS_CERT_FILE, key_file=TLS_KEY_FILE):
 
 
 class Server:
-    def __init__(self, host=HOST, port=PORT, users=None, tls_context=None, login_throttle=None):
+    def __init__(
+        self,
+        host=HOST,
+        port=PORT,
+        users=None,
+        tls_context=None,
+        login_throttle=None,
+        max_message_size=MAX_MESSAGE_SIZE,
+    ):
         self.start_time = time.time()
+        self.max_message_size = max_message_size
         self.users = users if users is not None else UserStore()
         self.login_throttle = login_throttle if login_throttle is not None else LoginThrottle()
         # Built before binding, so a missing certificate never leaves a socket open.
@@ -158,11 +168,16 @@ class Server:
         with conn, conn.makefile("rb") as conn_file:
             while self.running:
                 try:
-                    request = receive_message(conn_file)
+                    request = receive_message(conn_file, self.max_message_size)
                 except ConnectionClosed as closed:
                     if closed.discarded:
                         self.reject_unterminated_message(conn, addr, closed.discarded)
                     return  # the client hung up: the session is over either way
+                except MessageTooLong:
+                    # The rest of the line is still unread: reading on would run its tail as
+                    # the next request, so this session ends here.
+                    self.reject_oversized_message(conn, addr)
+                    return
                 except (ValueError, RecursionError):
                     # A malformed line (bad UTF-8, bad JSON, too-long int, too-deep nesting)
                     # rejects only that message: the line is already consumed, so the session
@@ -187,20 +202,38 @@ class Server:
         """Log a message cut off by the client's close, and tell the client if it still listens.
 
         Logs only the size, never the bytes: a cut-off ``login`` or ``register`` carries a
-        password. The reply is best effort. A client that only half-closed
-        (``shutdown(SHUT_WR)``) can still read it, but one that fully closed is gone, so a
-        failed send is expected and logged at DEBUG instead of as a second warning.
+        password. A client that only half-closed (``shutdown(SHUT_WR)``) can still read the
+        reply, but one that fully closed is gone.
         """
         logger.warning(
             "Dropped an unterminated message: %s:%s (%d bytes, no final newline)",
             addr[0], addr[1], discarded,
         )
-        response = {
-            "status": "error",
-            "message": "Incomplete message: no final newline, so it was not run",
-        }
+        self.send_last_error(conn, addr, "Incomplete message: no final newline, so it was not run")
+
+    def reject_oversized_message(self, conn, addr):
+        """Log a line over the size limit and tell the client why the connection closes.
+
+        Logs only the limit, never the bytes, for the same reason as an unterminated message.
+        """
+        logger.warning(
+            "Dropped a message over %d bytes: %s:%s (connection closed)",
+            self.max_message_size, addr[0], addr[1],
+        )
+        self.send_last_error(
+            conn,
+            addr,
+            f"Message too long: the limit is {self.max_message_size} bytes, connection closed",
+        )
+
+    def send_last_error(self, conn, addr, message):
+        """Send a final error reply before the connection closes, as a best effort.
+
+        The client may already be gone, so a failed send is expected and logged at DEBUG
+        instead of as a second warning.
+        """
         try:
-            send_message(conn, response)
+            send_message(conn, {"status": "error", "message": message})
         except OSError as error:
             logger.debug("Could not send the reply to %s:%s (%s)", addr[0], addr[1], error)
 

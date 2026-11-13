@@ -10,8 +10,8 @@ import json
 import unittest
 from unittest import mock
 
-from config import ENCODING
-from protocol import ConnectionClosed, receive_message, send_message
+from config import ENCODING, MAX_MESSAGE_SIZE
+from protocol import ConnectionClosed, MessageTooLong, receive_message, send_message
 
 
 class SendMessageTest(unittest.TestCase):
@@ -101,6 +101,44 @@ class ReceiveMessageTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             receive_message(stream)
         self.assertEqual(receive_message(stream), {"command": "info"})
+
+
+class MessageSizeLimitTest(unittest.TestCase):
+    LIMIT = 16
+
+    def line_of(self, size):
+        """A JSON string exactly ``size`` bytes long, plus its newline."""
+        return b'"' + b"x" * (size - 2) + b'"\n'
+
+    def test_message_exactly_at_the_limit_is_read(self):
+        stream = io.BytesIO(self.line_of(self.LIMIT))
+        self.assertEqual(receive_message(stream, max_size=self.LIMIT), "x" * (self.LIMIT - 2))
+
+    def test_message_one_byte_over_the_limit_raises(self):
+        with self.assertRaises(MessageTooLong) as caught:
+            receive_message(io.BytesIO(self.line_of(self.LIMIT + 1)), max_size=self.LIMIT)
+        self.assertEqual(caught.exception.max_size, self.LIMIT)
+
+    def test_reading_stops_one_byte_past_the_limit(self):
+        # What bounds memory: the rest of a huge line is never read.
+        stream = io.BytesIO(b"x" * 10_000)
+        with self.assertRaises(MessageTooLong):
+            receive_message(stream, max_size=self.LIMIT)
+        self.assertEqual(stream.tell(), self.LIMIT + 1)
+
+    def test_short_unterminated_line_is_still_a_close(self):
+        with self.assertRaises(ConnectionClosed) as caught:
+            receive_message(io.BytesIO(b"x" * self.LIMIT), max_size=self.LIMIT)
+        self.assertEqual(caught.exception.discarded, self.LIMIT)
+
+    def test_default_limit_comes_from_config(self):
+        self.assertEqual(receive_message(io.BytesIO(self.line_of(MAX_MESSAGE_SIZE)))[:3], "xxx")
+        with self.assertRaises(MessageTooLong):
+            receive_message(io.BytesIO(self.line_of(MAX_MESSAGE_SIZE + 1)))
+
+    def test_message_too_long_is_not_caught_as_malformed_or_network_error(self):
+        # Caught as a ValueError, the server would keep the session and parse the tail.
+        self.assertFalse(issubclass(MessageTooLong, (ValueError, OSError)))
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ import json
 import socket
 from typing import Any, BinaryIO
 
-from config import ENCODING
+from config import ENCODING, MAX_MESSAGE_SIZE
 
 
 class ConnectionClosed(Exception):
@@ -33,13 +33,28 @@ class ConnectionClosed(Exception):
         self.discarded = discarded
 
 
+class MessageTooLong(Exception):
+    """A line ran past ``max_size`` bytes without a ``\\n``.
+
+    Only the first ``max_size + 1`` bytes were read; the rest of the line is still in the
+    stream. Reading on would parse that tail, which the peer controls, as the next message,
+    so the caller must close the connection. A plain ``Exception`` for the same reason as
+    ``ConnectionClosed``: as a ``ValueError`` it would be caught as a malformed message and
+    the session would go on.
+    """
+
+    def __init__(self, max_size: int) -> None:
+        super().__init__(f"message longer than {max_size} bytes")
+        self.max_size = max_size
+
+
 def send_message(sock: socket.socket, message: dict[str, Any]) -> None:
     """Serialize ``message`` to JSON and send it as one line."""
     data = json.dumps(message) + "\n"
     sock.sendall(data.encode(ENCODING))
 
 
-def receive_message(sock_file: BinaryIO) -> Any:
+def receive_message(sock_file: BinaryIO, max_size: int = MAX_MESSAGE_SIZE) -> Any:
     """Read one message from a binary file object created with ``sock.makefile("rb")``.
 
     The line is read as bytes and decoded on its own, so a bad line can't corrupt the next
@@ -49,14 +64,19 @@ def receive_message(sock_file: BinaryIO) -> Any:
     ``null``; the caller checks its shape. Raises ``ConnectionClosed`` at end of stream, a
     signal no message can be mistaken for. A message is complete only with its ``\\n``, so a
     final line cut off by the close also raises ``ConnectionClosed`` (with ``discarded`` set),
-    even if its bytes would parse. Raises ``ValueError`` for a malformed line:
+    even if its bytes would parse. Raises ``MessageTooLong`` if the line has more than
+    ``max_size`` bytes before its ``\\n``. Raises ``ValueError`` for a malformed line:
     invalid UTF-8 (``UnicodeDecodeError``), invalid JSON (``json.JSONDecodeError``) or an
     integer too long to convert; ``RecursionError`` if the JSON is nested too deeply; and
     ``OSError`` if the read itself fails.
     """
-    line = sock_file.readline()
+    # One byte more than the limit leaves room for the "\n" of a message exactly at the limit.
+    line = sock_file.readline(max_size + 1)
     if not line.endswith(b"\n"):
-        # readline() without a size stops only at "\n" or at end of stream, so this is either
-        # a clean close (b"") or a close in the middle of a message. No "\n", no message.
+        # readline(size) stops at "\n", at end of stream, or after size bytes. A full read
+        # with no "\n" is a line over the limit; anything shorter is either a clean close (b"")
+        # or a close in the middle of a message. No "\n", no message.
+        if len(line) > max_size:
+            raise MessageTooLong(max_size)
         raise ConnectionClosed(discarded=len(line))
     return json.loads(line.decode(ENCODING))

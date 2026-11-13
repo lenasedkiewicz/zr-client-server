@@ -115,6 +115,9 @@ Passwords are typed without being shown. Until you log in, only `help`, `registe
   The newline is required: if the connection closes before it arrives, the bytes are
   discarded unread, even if they are valid JSON. The server logs the drop and sends a
   best-effort error reply, which only a client still reading can receive.
+- A message can be at most 64 KiB (65,536 bytes, `MAX_MESSAGE_SIZE` in `config.py`), not
+  counting its newline. A longer line gets an error reply, and then the server closes the
+  connection.
 
 Request:
 

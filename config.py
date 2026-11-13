@@ -3,6 +3,10 @@
 HOST = "127.0.0.1"
 PORT = 65432
 ENCODING = "utf-8"
+# Longest message the server reads, in bytes of the decrypted line, not counting its "\n".
+# Far above any real request (register is a few hundred bytes). A longer line closes the
+# connection, so a client can't make the server buffer without bound.
+MAX_MESSAGE_SIZE = 64 * 1024
 
 SERVER_VERSION = "0.1.1-alpha"
 SERVER_CREATED = "2026-10-01"

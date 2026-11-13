@@ -16,7 +16,7 @@ from unittest import mock
 
 from client import make_client_context
 from config import ENCODING, HOST, ROLE_USER, SERVER_CREATED, SERVER_VERSION, USERS_FILE_MODE
-from protocol import ConnectionClosed, receive_message, send_message
+from protocol import ConnectionClosed, MessageTooLong, receive_message, send_message
 from server import Server, make_server_context
 from throttle import LoginThrottle
 from users import UserStore
@@ -187,6 +187,21 @@ class DroppedClientLoggingTest(unittest.TestCase):
                 mock.patch("server.send_message", side_effect=BrokenPipeError("gone")):
             self.assert_drop_logged_as_warning()
 
+    def test_oversized_message_gets_an_error_reply_and_ends_the_session(self):
+        with mock.patch("server.receive_message", side_effect=MessageTooLong(16)) as receive, \
+                mock.patch("server.send_message") as send:
+            self.assert_drop_logged_as_warning()
+        receive.assert_called_once()  # no second read: the tail of the line is never parsed
+        send.assert_called_once()
+        response = send.call_args.args[1]
+        self.assertEqual(response["status"], "error")
+        self.assertIn("too long", response["message"])
+
+    def test_oversized_message_reply_to_a_gone_client_is_not_a_second_warning(self):
+        with mock.patch("server.receive_message", side_effect=MessageTooLong(16)), \
+                mock.patch("server.send_message", side_effect=BrokenPipeError("gone")):
+            self.assert_drop_logged_as_warning()
+
     def test_clean_close_is_not_logged_as_a_warning(self):
         with mock.patch("server.receive_message", side_effect=ConnectionClosed()), \
                 mock.patch("server.send_message") as send, \
@@ -337,8 +352,50 @@ class ServerTest(unittest.TestCase):
 
     def test_nesting_too_deep(self):
         # 2000 levels parse fine on Python 3.13; 100 000 raise RecursionError.
+        # Python 3.14 limits recursion by C stack size, so keep the depth well past any limit
+        # and raise the size limit for this test instead of shrinking the depth to fit it.
         depth = 100_000
+        self.server.max_message_size = 2 * depth
         self.assert_malformed_line_rejected(b"[" * depth + b"]" * depth)
+
+    def padded_help(self, size):
+        """A ``help`` request exactly ``size`` bytes long (padding in ``args``), plus newline."""
+        line = json.dumps({"command": "help", "args": {"pad": ""}})
+        line = line.replace('""', '"' + "x" * (size - len(line)) + '"')
+        self.assertEqual(len(line.encode(ENCODING)), size)
+        return line.encode(ENCODING) + b"\n"
+
+    def test_message_at_size_limit_is_answered(self):
+        self.server.max_message_size = 200
+        self.sock.sendall(self.padded_help(200))
+        self.assertEqual(receive_message(self.sock_file)["status"], "ok")
+        self.assertEqual(self.request("help")["status"], "ok")  # the session goes on
+
+    def test_message_over_size_limit_closes_the_connection(self):
+        self.server.max_message_size = 200
+        with self.assertLogs("server", level="WARNING") as logs:
+            self.sock.sendall(self.padded_help(201))
+            response = receive_message(self.sock_file)
+            with self.assertRaises(ConnectionClosed):
+                receive_message(self.sock_file)
+        self.assertEqual(response["status"], "error")
+        self.assertIn("too long", response["message"])
+        self.assertNotIn("help", logs.output[0])  # the content is never logged
+        self.disconnect()
+        self.assert_server_still_serves()
+
+    def test_tail_of_an_oversized_line_is_never_run(self):
+        # Request smuggling: padding up to the limit, then a valid command on the same line.
+        # If the session went on, the next read would return just the command and run it.
+        self.server.max_message_size = 200
+        self.login_as()
+        self.sock.sendall(b"x" * 201 + b'{"command": "stop"}\n')
+        self.assertIn("too long", receive_message(self.sock_file)["message"])
+        with self.assertRaises(ConnectionClosed):
+            receive_message(self.sock_file)
+        self.disconnect()
+        self.assert_server_still_serves()
+        self.assertTrue(self.thread.is_alive())
 
     def test_register(self):
         response = self.register()

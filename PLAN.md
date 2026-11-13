@@ -60,6 +60,12 @@ zr-client-server/
   `ConnectionClosed`, with `discarded` set to its size, even if it would parse. The server
   logs the size (never the bytes, which may hold a password) and tries one error reply,
   ignoring a failed send. See concept 004 for why we reject instead of tolerating it.
+- **Size limit** (task 5.1): a message has at most `MAX_MESSAGE_SIZE` bytes (64 KiB, in
+  `config.py`) before its `\n`, counted on the decrypted line. `receive_message` reads with
+  `readline(max_size + 1)`, so memory stays bounded, and raises `MessageTooLong` for a longer
+  line. The server logs the limit (never the bytes), tries one error reply and closes the
+  connection: the rest of the line is still unread, and reading on would run its tail as
+  the next request.
 
 ## Step 4 — server (`server.py`)
 - Class `Server` storing `start_time = time.time()` at startup.

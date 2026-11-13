@@ -127,6 +127,22 @@ each malformed input raises, and whether a text stream survives a decode error)
 
 *First used in 010*
 
+### py: the Windows Python launcher
+
+`py [-<version>] <python arguments>`. Installed with Python on Windows. It starts a chosen
+installed Python version, so you can run the same command on several versions without
+changing `PATH`. Everything after the version flag goes to Python unchanged.
+
+- `-0`: list the installed versions; `*` marks the default.
+- `-3.10`, `-3.12`, …: run that version.
+
+Example: `py -0`; `py -3.10 -m unittest discover tests` (the CI runs 3.10 and 3.14, so check
+the oldest supported version locally); `py -3.12 -c "import sys; print(sys.version)"`
+
+PowerShell: the same command. On Linux and macOS there is no `py`; use `python3.10` etc.
+
+*First used in 020*
+
 ## TLS / OpenSSL
 
 ### openssl req: create a self-signed certificate
@@ -352,10 +368,12 @@ your branch and the remote have diverged.
 - `--ff-only`: only fast-forward, i.e. move your branch pointer forward to the remote's
   commit. If the branches have diverged, git refuses and changes nothing, so a pull never
   creates a surprise merge commit.
+- `-q`: quiet, no progress or summary output.
 
-Example: `git pull --ff-only` on `master` before branching for a new fix batch.
+Example: `git pull --ff-only` on `master` before branching for a new fix batch;
+`git pull -q --ff-only` right after a PR merge.
 
-*First used in the step 16 plan commit (`docs:` commit, no journal entry)*
+*First used in the step 16 plan commit (`docs:` commit, no journal entry); `-q` added in 020*
 
 ### git checkout: switch branches
 
@@ -365,10 +383,12 @@ does only this.
 
 - `-b <new-branch>`: create the branch at the current commit and switch to it
   (`git switch -c <new-branch>` in newer git).
+- `-q`: quiet, no "Switched to branch" message.
 
-Example: `git checkout feature/admin`; `git checkout -b fix/server-survives-bad-client`
+Example: `git checkout feature/admin`; `git checkout -b fix/server-survives-bad-client`;
+`git checkout -q master`
 
-*First used in 008; `-b` added in the step 16 plan commit*
+*First used in 008; `-b` added in the step 16 plan commit; `-q` added in 020*
 
 ### git merge: join another branch into the current one
 

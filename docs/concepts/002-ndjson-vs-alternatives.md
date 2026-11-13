@@ -1,7 +1,7 @@
 ---
 id: 002
 title: Newline-delimited JSON vs other serialization formats and framing
-date: 2026-10-20
+date: 2026-11-13
 asked-during: between commits
 tags: [json, ndjson, serialization, pickle, framing, tcp, protocol]
 ---
@@ -55,9 +55,10 @@ two can arrive glued together. The application must mark the boundaries itself:
 Our client keeps one session open for many commands, and every payload is text. So a
 delimiter gives the simplest correct framing.
 
-**Known gap:** `readline()` has no size limit, so a peer that never sends `\n` can make the
-server buffer without bound. A production protocol caps the frame size (`readline(limit)` or a
-maximum length prefix).
+**Frame size limit (closed in task 5.1):** a plain `readline()` has no size limit, so a peer
+that never sends `\n` could make the server buffer without bound. A production protocol caps
+the frame size (`readline(limit)` or a maximum length prefix). This repo now reads with
+`readline(MAX_MESSAGE_SIZE + 1)` and closes the connection on a longer line (dev-journal 020).
 
 ## Interview answer
 
