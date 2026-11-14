@@ -11,3 +11,4 @@ appears in zr-client-server, alternatives and trade-offs, and a short interview 
 - 002 · 2026-10-20 · [Newline-delimited JSON vs alternatives](002-ndjson-vs-alternatives.md): why stdlib JSON over pickle/msgpack/protobuf, and a `\n` delimiter over a length prefix
 - 003 · 2026-10-25 · [What an except clause catches](003-except-clause-scope.md): clauses guard only the try body; an error raised in a handler skips its siblings
 - 004 · 2026-11-11 · [Rejecting vs tolerating an unterminated final frame](004-unterminated-final-frame.md): why "no `\n`, no message" beats Postel's law for a live command protocol
+- 005 · 2026-11-14 · [What to check when reviewing a Python server](005-reviewing-a-python-server.md): long-running, talks to strangers, keeps state: the review areas beyond the bugs already found
