@@ -9,11 +9,19 @@ A reviewer's time is best spent on what a checklist can't find. This skill finds
 first. Every item below is a mistake a reviewer has already found in this repo, written as a
 question to ask of new code. The tag after an item (`1.1`, `4.2`, …) is the task in
 `docs/plans/001-code-review-2026-10-21.md` that taught it; read that task when an item is
-unclear.
+unclear. Items tagged `c005` are general server practice that no review here has reported
+yet; `docs/concepts/005-reviewing-a-python-server.md` explains them.
 
 The root pattern behind most findings: **the code assumed the other side behaves
 correctly.** The peer, the file, the user at the keyboard and the operating system can each
 do the wrong thing at the worst moment. Ask that of every changed line.
+
+For code that no item below covers, ask the three questions a server always raises (c005):
+1. **It runs for a long time.** What grows, leaks or drifts without a limit?
+2. **It talks to strangers.** What can a client that isn't logged in make it do, what does
+   that cost, and what do the replies reveal?
+3. **It keeps state.** Is the state still correct after a crash, a restart, or two writers
+   at once?
 
 ## How to run it
 
@@ -24,7 +32,7 @@ do the wrong thing at the worst moment. Ask that of every changed line.
    and its callers. Most past findings were about what the code around a line did *not* do
    (a send with no `try`, a `listen()` outside the guarded region).
 3. **Pick sections by file** (table below), then ask every item in those sections. Sections
-   G and H apply to every change.
+   G and H apply to every change, and L to every change in a `.py` file.
 4. **Prove it where it's cheap.** A suspected crash or wrong reply is a finding only once
    you can name the input that triggers it. If a five-line script or a test can show it, run
    it and say what happened. Never claim something was run when it wasn't.
@@ -34,12 +42,12 @@ do the wrong thing at the worst moment. Ask that of every changed line.
 
 | Changed files | Sections |
 |---|---|
-| `server.py`, `protocol.py` | A, B, C, D, E, F |
+| `server.py`, `protocol.py` | A, B, C, D, E, F, I, J |
 | `client.py` | A, B, C, D |
-| `run.py` | A, B (the probe), D, E |
-| `users.py`, `throttle.py`, `admin_setup.py` | A, B (the file is input too), D, E, F |
+| `run.py` | A, B (the probe), D, E, K (it opens the users file too) |
+| `users.py`, `throttle.py`, `admin_setup.py` | A, B, D, E, F, I, J, K |
 | `tests/` | C, D |
-| `config.py` | G (is every constant used? does it state its unit?) |
+| `config.py` | G (is every constant used? does it state its unit?), E5 |
 | docs, skills, `PLAN.md`, `README.md` | H |
 
 ## Report format
@@ -126,6 +134,15 @@ Rules for the report:
   exchange. (7.2, 8.3)
 - **B8. Who may do this?** For a new command or side effect: which account or process can
   trigger it? If the answer is "anyone logged in", is that written in the README? (9.2)
+- **B9. The value makes sense, not only parses.** Every string from the peer has a length
+  limit, names match an allowlist (`re.fullmatch`), numbers are in range. Check the type
+  before using the value: `args.get("username")` may be a list or `None`. (c005)
+- **B10. Peer input never reaches a log line, a terminal or a file path unchecked.** A
+  newline in a logged value forges a log line; `..` in a path leaves the folder. (c005)
+- **B11. An error reply gives away nothing internal.** `str(error)` in a reply is safe only
+  if every exception that can reach that `except` carries a message written for the user.
+  Could a `KeyError`, an `OSError` with a path, or a library message get there? Replies
+  keep one shape (`status`, `command`, `message` or `data`). (c005)
 
 ### C. Tests
 
@@ -177,6 +194,9 @@ Rules for the report:
   that covers the child's whole life. (8.1)
 - **D5. Own only what you started.** Never stop a server that was already running. (8.1)
 - **D6. Threads are joined** (with a timeout), in tests too. (2.1)
+- **D7. The program stops cleanly however it is stopped:** Ctrl+C, the `stop` command and
+  `SIGTERM` (what `terminate()` and a service manager send; on Windows `terminate()` kills
+  at once, so nothing after it runs). Is a reply in progress finished or cut? (c005)
 
 ### E. Clocks and platform
 
@@ -189,6 +209,11 @@ Rules for the report:
 - **E4. Paths, file modes and process flags.** File modes mean little on Windows (ACLs
   instead); `CREATE_NEW_CONSOLE` is Windows-only; `python` vs `python3`. CI runs Linux and
   Windows, but it can't open a window: put the manual check under "Not checked".
+- **E5. Defaults are safe and bad configuration fails at start-up.** The server binds to
+  `127.0.0.1` unless exposure is meant. TLS verification and the hostname check are never
+  switched off, a minimum TLS version is set, and the private key, certificate and users
+  file are git-ignored. A wrong value in `config.py` or a missing file gives a clear message
+  before the first client connects, not a traceback at the first request. (c005)
 
 ### F. Logging and output
 
@@ -225,6 +250,72 @@ Rules for the report:
   a pointer to the source over a copy. (9.1)
 - **H3. Decisions are written where the next reader looks:** a trade-off or known gap goes
   in a code comment and, if it affects users, in the README.
+
+### I. State and cost: what a stranger can make the server keep or compute
+
+- **I1. Nothing grows without a limit.** For every dict, list, set, file and log the change
+  touches: who chooses the keys, and what removes an entry? If the peer chooses the key and
+  only a later, optional event removes it, memory is a denial-of-service target. (c005)
+- **I2. What can a client that isn't logged in make the server create?** Accounts, files,
+  sessions, log lines. Is there a limit per connection or per period of time? (c005)
+- **I3. Expensive work is guarded.** Which requests hash a password, write a file or loop
+  over input? Can they be sent without a login and without a limit? Run the cheap checks
+  (type, length, lockout) before the expensive step. (c005)
+- **I4. A regex applied to peer input can't backtrack badly:** no nested quantifiers such as
+  `(a+)+`, and the input length is limited first. (c005)
+
+### J. Authentication and authorization
+
+- **J1. Every endpoint gives the same answer about whether an account exists.** Compare
+  `login`, `register` and anything new, by message *and* by time taken. If one hides which
+  usernames exist and another reveals it, the hiding is worth nothing. If revealing it is
+  the chosen trade-off (a usable `register`), it is written down. (c005)
+- **J2. Secrets are compared with `hmac.compare_digest` and created with `secrets`,** never
+  `==` on a hash and never `random`. (c005)
+- **J3. Password storage keeps its properties:** a random salt per user, the iteration
+  count stored per record, and the password itself never stored, logged or sent back.
+  (c005)
+- **J4. Lockout cuts both ways.** Counting per username stops guessing but lets anyone lock
+  out a victim. Is the trade-off written down, is the lockout temporary, and is its own
+  state bounded (I1)? (c005)
+- **J5. Permission is checked on the server, per command.** "Logged in" is not "allowed":
+  does the command need a role? Leaving a command out of `help` is not access control.
+  (9.2, c005)
+- **J6. The session changes cleanly:** on logout, on a second login, on a failed login
+  while logged in, and when the connection ends. No state from one connection reaches the
+  next. (c005)
+
+### K. Files the server trusts
+
+- **K1. A file the program wrote is still input when it is read back.** What happens at
+  start-up, and at first use, if the file is empty, not valid JSON, the wrong JSON type, or
+  missing a field? The user gets a clear message that names the file, not a traceback or a
+  `KeyError` in the middle of a login. (c005)
+- **K2. Writes are atomic:** write a temporary file, then `os.replace`. A crash in the
+  middle leaves the old file whole. (c005)
+- **K3. Permissions are set when the file is created,** not afterwards, so there is no
+  moment when others can read it. Say what that does on Windows. (step 11)
+- **K4. Two writers.** Which processes open this file (`server.py`, `run.py`, the tests)?
+  Can two write at once, do they share a temporary file name, and does one overwrite the
+  other's change from a stale copy in memory? (c005)
+- **K5. `open()` names its `encoding=`.** The default differs between Windows and Linux.
+  (c005)
+
+### L. Python traps (every change in a `.py` file)
+
+- **L1. No bare `except:` and no `except Exception` that hides bugs.** A bare `except` also
+  catches `KeyboardInterrupt` and `SystemExit`. If a broad catch is right (a last line of
+  defence around one session), it logs the traceback. (c005)
+- **L2. `assert` isn't used to validate input or state:** `python -O` removes it. Tests are
+  the only place for it, and `unittest` has its own methods. (c005)
+- **L3. No mutable default argument** (`def f(items=[])`, `={}`): every call shares the one
+  object. Use `None` and create it inside, as `Server.__init__` does. (c005)
+- **L4. Nothing from the peer reaches `pickle`, `eval`, `exec`, `subprocess` with
+  `shell=True`, or a format string that is then executed.** Commands are argument lists.
+  (c005)
+- **L5. No `tempfile.mktemp`, no `random` for anything secret,** no `os.system`. (c005)
+- **L6. A truthiness test isn't hiding a real value:** `if not x` is also true for `0`,
+  `""` and `[]`. Use `is None` when `None` is what is meant. (4.1)
 
 ## Keeping this skill current
 
