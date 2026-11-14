@@ -245,7 +245,15 @@ be mangled by MSYS path conversion; the `<commit> -- <path>` form avoids it.
 During a merge, `git diff` with no arguments shows only the conflicted files, in a
 "combined" format with two `+`/`-` columns (one per parent).
 
-*First used in 001; commit and `--` forms added in 007; merge view added in 008; `-U<n>` added in 017*
+- `<a>...<b>` (three dots): what `<b>` changed since it branched off `<a>`, i.e. the diff
+  from their [merge base](#git-merge-base-find-the-common-ancestor) to `<b>`. This is what a
+  pull request shows. Two dots (or two commits with a space) compare the two tips, so
+  changes made on `<a>` in the meantime show up too. Example: `git diff master...HEAD`.
+- `-- . ':!<path>'`: everything except `<path>` (an "exclude pathspec"). Example:
+  `git diff 8bc6362 HEAD --stat -- . ':!docs'` (what the review fixes changed, without the
+  journal). PowerShell: the same, single quotes work there too.
+
+*First used in 001; commit and `--` forms added in 007; merge view added in 008; `-U<n>` added in 017; `...` and `':!'` added with the pre-review skill*
 
 ### git add: stage changes
 
@@ -310,7 +318,14 @@ Example: `git log --oneline | head -15`; `git log --oneline origin/master..origi
 
 PowerShell: the same; use `| Select-Object -First 15` instead of `head`.
 
-*First used in 005; `a..b` added in 008; `-S` added in 018*
+- `--graph --all`: draw the branch and merge lines, for every branch and not only the
+  current one. Example: `git log --all --oneline --graph`.
+- `--no-merges`: leave out merge commits, so only the commits that changed code remain.
+- `--format='<fmt>'`: choose what is printed per commit: `%h` short hash, `%s` subject,
+  `%b` body, `%n` a newline. Example: `git log --format='%h %s%n%b' 8bc6362..HEAD --no-merges`
+  (every fix since the review plan, with its full message).
+
+*First used in 005; `a..b` added in 008; `-S` added in 018; `--graph`, `--all`, `--no-merges` and `--format` added with the pre-review skill*
 
 ### git branch --show-current: print the current branch
 
@@ -368,7 +383,11 @@ does only this.
 
 Example: `git checkout feature/admin`; `git checkout -b fix/server-survives-bad-client`
 
-*First used in 008; `-b` added in the step 16 plan commit*
+- `-b <new-branch> <start>`: create the branch at `<start>` instead of the current commit.
+  Example: `git checkout -b chore/pre-review-skill master` (start from `master` while
+  standing on an unmerged fix branch).
+
+*First used in 008; `-b` added in the step 16 plan commit; start point added with the pre-review skill*
 
 ### git merge: join another branch into the current one
 
@@ -535,6 +554,17 @@ form and fail with `usage:` (exit 129), as here; then just merge and `git merge 
 needed.
 
 *First used in 008*
+
+### git ls-files: list tracked files
+
+`git ls-files [<path>]`. Prints every file git tracks, one per line. Ignored and untracked
+files are left out, so it shows what a reviewer will actually get.
+
+Example: `git ls-files`; `git ls-files tests`
+
+PowerShell: the same command.
+
+*First used with the pre-review skill*
 
 ### git status: show the working tree state
 

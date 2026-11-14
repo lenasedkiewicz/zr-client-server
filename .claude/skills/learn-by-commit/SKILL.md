@@ -45,6 +45,7 @@ Implement only what the briefing describes. When you make a decision the briefin
 
 Before committing, verify and report the result honestly:
 - `python -m unittest discover tests`: always. New server behaviour gets a test in `tests/`.
+- Before the last commit of a branch (before the PR is opened), run the `pre-review` skill on the branch and report its findings. Each fix is its own chunk.
 - No linter or type checker is configured. Don't claim one ran. If one would help, suggest adding it as its own chunk.
 - If the change affects interactive behaviour that the tests can't reach (the client prompt, `run.py` opening windows), give the user the manual check from the `PLAN.md` "Verification" section to run. You can't see a new console window.
 
