@@ -30,6 +30,11 @@ TLS_CERT_FILE = "server.crt"
 TLS_KEY_FILE = "server.key"
 # A client that connects but never finishes the handshake must not block the accept loop.
 TLS_HANDSHAKE_TIMEOUT = 5.0
+# Seconds a client may stay silent after the handshake before the server drops it. The
+# server serves one client at a time, so an idle one blocks everyone else. Generous, because
+# a person at the prompt reads and types slowly. It limits each read, not a whole message:
+# a client trickling one byte at a time is not stopped (known gap, see PLAN.md step 16).
+CLIENT_IDLE_TIMEOUT = 120.0
 
 # Server logging, applied only when server.py runs as a script
 LOG_LEVEL = "INFO"

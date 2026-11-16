@@ -81,6 +81,16 @@ zr-client-server/
     then closes the connection and the listening socket and exits the loop.
 - Invalid JSON / unknown command → error response, connection stays open.
 - Client disconnect → server goes back to `accept()`.
+- **Idle timeout** (step 16, task 5.2): a client that sends nothing for
+  `CLIENT_IDLE_TIMEOUT` seconds (120, in `config.py`) after the handshake gets one
+  best-effort error reply and is disconnected, so the next client can be served. The
+  timeout is set on the socket, so it ends a read with `TimeoutError`; `handle_client`
+  catches that before `OSError` and never reads again (after a timeout the `makefile()`
+  stream may be inconsistent).
+  - **Known gap (slowloris):** the timeout limits each read, not a whole message or
+    session, so a client sending one byte just under every 120 s keeps its slot. Fixing that
+    needs a deadline per message, i.e. our own `recv` loop instead of `readline()`. Recorded,
+    not fixed: one client at a time on localhost, and the plan keeps the concurrency model.
 - `Ctrl+C` handled gracefully (close socket).
 
 ## Step 5 — client (`client.py`)
@@ -183,8 +193,9 @@ salted PBKDF2 hashes; this adds the in-transit layer (defence in depth).
   `load_cert_chain(cert, key)`; tests inject their own context (like `users=`).
   - Wrap each *accepted* connection (`wrap_socket(conn, server_side=True)`), not the
     listening socket, so one failed handshake affects only that client.
-  - Handshake under `TLS_HANDSHAKE_TIMEOUT`, then back to blocking: a client that connects
-    and sends nothing must not freeze the single-client accept loop.
+  - Handshake under `TLS_HANDSHAKE_TIMEOUT`: a client that connects and sends nothing must
+    not freeze the single-client accept loop. After it, reads and sends wait at most
+    `CLIENT_IDLE_TIMEOUT` (step 16, task 5.2; the socket used to go back to blocking).
   - Handshake failure (`ssl.SSLError`, `OSError`) → print one line, return to `accept()`.
     This also covers `run.py`'s readiness probe, which connects with plain TCP and closes.
   - Log "Client connected" only after a successful handshake.

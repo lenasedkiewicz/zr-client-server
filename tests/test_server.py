@@ -202,6 +202,21 @@ class DroppedClientLoggingTest(unittest.TestCase):
                 mock.patch("server.send_message", side_effect=BrokenPipeError("gone")):
             self.assert_drop_logged_as_warning()
 
+    def test_idle_client_gets_an_error_reply_and_ends_the_session(self):
+        with mock.patch("server.receive_message", side_effect=TimeoutError("timed out")) as receive, \
+                mock.patch("server.send_message") as send:
+            self.assert_drop_logged_as_warning()
+        receive.assert_called_once()  # no second read from a stream that timed out
+        send.assert_called_once()
+        response = send.call_args.args[1]
+        self.assertEqual(response["status"], "error")
+        self.assertIn("Idle", response["message"])
+
+    def test_idle_client_reply_to_a_gone_client_is_not_a_second_warning(self):
+        with mock.patch("server.receive_message", side_effect=TimeoutError("timed out")), \
+                mock.patch("server.send_message", side_effect=BrokenPipeError("gone")):
+            self.assert_drop_logged_as_warning()
+
     def test_clean_close_is_not_logged_as_a_warning(self):
         with mock.patch("server.receive_message", side_effect=ConnectionClosed()), \
                 mock.patch("server.send_message") as send, \
@@ -396,6 +411,24 @@ class ServerTest(unittest.TestCase):
         self.disconnect()
         self.assert_server_still_serves()
         self.assertTrue(self.thread.is_alive())
+
+    def test_idle_client_is_dropped_and_the_next_one_served(self):
+        # The timeout is set during the handshake, so reconnect after lowering it.
+        self.server.idle_timeout = 0.5
+        self.disconnect()
+        self.connect()
+        self.login_as()
+        with self.assertLogs("server", level="WARNING") as logs:
+            started = time.monotonic()
+            response = receive_message(self.sock_file)  # send nothing, just wait
+            with self.assertRaises(ConnectionClosed):
+                receive_message(self.sock_file)
+        self.assertLess(time.monotonic() - started, 4)  # well before the client's own 5 s
+        self.assertEqual(response["status"], "error")
+        self.assertIn("Idle", response["message"])
+        self.assertIn("idle", logs.output[0])
+        self.disconnect()
+        self.assert_server_still_serves()
 
     def test_register(self):
         response = self.register()

@@ -111,6 +111,13 @@ Passwords are typed without being shown. Until you log in, only `help`, `registe
 
 - TLS (1.2 or newer) over TCP on `127.0.0.1:65432` (configurable in `config.py`), UTF-8
   encoding. A client that does not finish the TLS handshake within 5 seconds is dropped.
+- The server serves one client at a time, so a client that sends nothing for 120 seconds
+  (`CLIENT_IDLE_TIMEOUT` in `config.py`) is disconnected, with a best-effort "Idle too long"
+  error reply. Each new message resets the timer. When you type your next command, the
+  client shows that reply on Linux. On Windows the reply is usually lost to the connection
+  reset, and the client says only "Connection closed by the server". Known gap: a client
+  that sends one byte at a time, just under every 120 seconds, is not stopped
+  ("slowloris"); only a deadline per message would stop it.
 - Inside TLS, each message is a single JSON object terminated with a newline (`\n`).
   The newline is required: if the connection closes before it arrives, the bytes are
   discarded unread, even if they are valid JSON. The server logs the drop and sends a
