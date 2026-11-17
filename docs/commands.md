@@ -71,7 +71,12 @@ Example from 014:
 `python -c "import re; print(bool(re.match(r'^\d$', '١')), bool(re.match(r'^1$', '1\n')))"`
 → `True True` (`\d` matches an Arabic-Indic digit; `$` accepts a trailing newline).
 
-*First used in 001; console-encoding gotcha added in 014*
+Example from 022, asking Python which OS clock sits behind each `time` function:
+`python -c "import time;print(time.get_clock_info('monotonic'), time.get_clock_info('time'))"`
+→ on Windows with Python 3.13, `monotonic` is `QueryPerformanceCounter()` (`adjustable=False`)
+and `time` is `GetSystemTimePreciseAsFileTime()` (`adjustable=True`).
+
+*First used in 001; console-encoding gotcha added in 014; clock example added in 022*
 
 ### python <file>: run a script file
 

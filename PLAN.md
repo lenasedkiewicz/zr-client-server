@@ -68,7 +68,10 @@ zr-client-server/
   the next request.
 
 ## Step 4 — server (`server.py`)
-- Class `Server` storing `start_time = time.time()` at startup.
+- Class `Server` storing `start_time = clock()` at startup, where `clock` defaults to
+  `time.monotonic` (step 16, task 6.1): uptime is a duration, so a system clock moved back
+  must not make it negative. The clock is a `Server` argument, so tests use a fake one
+  instead of sleeping. A start *date* for display would come from the wall clock.
 - `socket.socket(AF_INET, SOCK_STREAM)`, `SO_REUSEADDR`, `bind`, `listen`, accept loop
   (one client at a time — simple and sufficient for the spec).
 - Command dispatch via a dict `{name: (handler, description)}` — `help` is generated from
