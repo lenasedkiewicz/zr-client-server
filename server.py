@@ -78,10 +78,15 @@ class Server:
         # Set once listen() has run, so callers (the tests) know they can connect.
         self.listening = threading.Event()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.bind((host, port))
-        # Actual address - differs from the requested one when port=0 (used by tests).
-        self.address = self.sock.getsockname()
+        try:
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.sock.bind((host, port))
+            # Actual address - differs from the requested one when port=0 (used by tests).
+            self.address = self.sock.getsockname()
+        except BaseException:
+            # The caller never gets a Server to close, so the half-built socket is ours to close.
+            self.sock.close()
+            raise
         # name -> (handler, description, requires_login)
         self.commands = {
             "register": (self.cmd_register, "Creates a user account: register <username>", False),
@@ -280,15 +285,32 @@ class Server:
         tls_conn.settimeout(self.idle_timeout)
         return tls_conn
 
+    def close(self):
+        """Close the listening socket and free the port; safe to call more than once.
+
+        Like ``socketserver``'s ``server_close()``. ``serve_forever`` calls it when it
+        ends, so only a server that never served needs it called by hand (or ``with``).
+        """
+        self.listening.clear()
+        self.sock.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()  # returns None, so an exception from the with block still propagates
+
     def serve_forever(self):
         self.running = True
-        self.sock.listen()
-        self.listening.set()
-        # Wake up periodically so Ctrl+C works on Windows, where a blocking accept()
-        # is not interrupted by KeyboardInterrupt. Accepted sockets stay blocking.
-        self.sock.settimeout(1.0)
-        logger.info("Server listening on %s:%s", self.address[0], self.address[1])
+        # Everything after the socket exists is inside the try: a failing listen() or
+        # settimeout() must still reach the finally that closes it.
         try:
+            self.sock.listen()
+            self.listening.set()
+            # Wake up periodically so Ctrl+C works on Windows, where a blocking accept()
+            # is not interrupted by KeyboardInterrupt. Accepted sockets stay blocking.
+            self.sock.settimeout(1.0)
+            logger.info("Server listening on %s:%s", self.address[0], self.address[1])
             while self.running:
                 try:
                     conn, addr = self.sock.accept()
@@ -303,8 +325,7 @@ class Server:
         except KeyboardInterrupt:
             logger.info("Interrupted")
         finally:
-            self.listening.clear()
-            self.sock.close()
+            self.close()
             logger.info("Server stopped")
 
 
@@ -319,14 +340,14 @@ if __name__ == "__main__":
         print("Create them once (Git Bash) in the project folder:")
         print(f"  {OPENSSL_COMMAND}")
         sys.exit(1)
-    try:
-        ensure_admin(server.users)
-    except RuntimeError as error:  # no terminal to ask in (e.g. started in the background)
-        server.sock.close()
-        print(error)
-        sys.exit(1)
-    except (KeyboardInterrupt, EOFError):
-        server.sock.close()
-        print("\nAdmin setup cancelled - server not started")
-        sys.exit(1)
-    server.serve_forever()
+    # The with block closes the socket on every way out, sys.exit() included.
+    with server:
+        try:
+            ensure_admin(server.users)
+        except RuntimeError as error:  # no terminal to ask in (e.g. started in the background)
+            print(error)
+            sys.exit(1)
+        except (KeyboardInterrupt, EOFError):
+            print("\nAdmin setup cancelled - server not started")
+            sys.exit(1)
+        server.serve_forever()

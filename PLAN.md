@@ -95,6 +95,11 @@ zr-client-server/
     needs a deadline per message, i.e. our own `recv` loop instead of `readline()`. Recorded,
     not fixed: one client at a time on localhost, and the plan keeps the concurrency model.
 - `Ctrl+C` handled gracefully (close socket).
+- **Owns its socket** (step 16, task 6.2): `Server.close()` (safe to call twice) and
+  `with Server() as server:`, like `socketserver`'s `server_close()`. A failed `bind()` in
+  `__init__` closes the half-built socket before re-raising; in `serve_forever` everything
+  from `listen()` on is inside the `try` whose `finally` calls `close()`. Callers (`__main__`,
+  the tests) never touch `server.sock` to clean up.
 
 ## Step 5 — client (`client.py`)
 - Connects to the server, input loop: `> ` prompt, sends the typed command, pretty-prints the

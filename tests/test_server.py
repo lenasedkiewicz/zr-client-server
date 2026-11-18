@@ -75,7 +75,7 @@ class HandleRequestTest(unittest.TestCase):
         users = UserStore(os.path.join(tmp_dir.name, "users.json"), iterations=1_000)
         self.server = Server(port=0, users=users, tls_context=make_server_context(TEST_CERT, TEST_KEY))
         # The constructor binds a socket even though nothing listens or connects here.
-        self.addCleanup(self.server.sock.close)
+        self.addCleanup(self.server.close)
 
     def handle(self, request, user="alice"):
         return self.server.handle_request(request, {"user": user})
@@ -132,7 +132,7 @@ class HandleRequestTest(unittest.TestCase):
         now = [100.0]  # fake clock: the test moves it, nothing sleeps
         server = Server(port=0, users=users, tls_context=make_server_context(TEST_CERT, TEST_KEY),
                         clock=lambda: now[0])
-        self.addCleanup(server.sock.close)
+        self.addCleanup(server.close)
         now[0] = 3725.5
         response = server.handle_request({"command": "uptime"}, {"user": "alice"})
         self.assertEqual(response["data"], {"uptime_seconds": 3625.5, "uptime": "1:00:25"})
@@ -155,6 +155,67 @@ class HandleRequestTest(unittest.TestCase):
         self.assertTrue(self.server.running)
 
 
+class ServerCloseTest(unittest.TestCase):
+    """The server releases its listening socket on every path, including failed start-up.
+
+    These tests check that the socket is closed (``fileno() == -1``) rather than binding the
+    port again: on Windows, ``SO_REUSEADDR`` lets a second bind succeed even while the port
+    is still taken, so a rebind would prove nothing there (see task 6.3 of the fix plan).
+    """
+
+    def setUp(self):
+        tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp_dir.cleanup)
+        self.users = UserStore(os.path.join(tmp_dir.name, "users.json"), iterations=1_000)
+
+    def make_server(self):
+        server = Server(port=0, users=self.users, tls_context=make_server_context(TEST_CERT, TEST_KEY))
+        self.addCleanup(server.close)  # safe even if the test closed it already
+        return server
+
+    def assert_closed(self, sock):
+        self.assertEqual(sock.fileno(), -1, "listening socket is still open")
+
+    def test_close_closes_the_listening_socket(self):
+        server = self.make_server()
+        server.close()
+        self.assert_closed(server.sock)
+
+    def test_close_twice_is_safe(self):
+        server = self.make_server()
+        server.close()
+        server.close()  # must not raise
+        self.assert_closed(server.sock)
+
+    def test_with_block_closes_the_socket_even_on_error(self):
+        server = self.make_server()
+        with self.assertRaises(RuntimeError):  # __exit__ must not swallow the exception
+            with server as entered:
+                self.assertIs(entered, server)
+                raise RuntimeError("boom")
+        self.assert_closed(server.sock)
+
+    def test_failed_listen_closes_the_socket(self):
+        server = self.make_server()
+        # Patched on the class: socket.socket uses __slots__, so an instance can't be patched.
+        with mock.patch.object(socket.socket, "listen", side_effect=OSError("listen failed")):
+            with self.assertRaises(OSError):
+                server.serve_forever()
+        self.assert_closed(server.sock)
+        self.assertFalse(server.listening.is_set())
+
+    def test_failed_bind_closes_the_socket(self):
+        # The constructor raises, so the test never gets the server: record which socket
+        # close() ran on, and let the real close() run too.
+        real_close = socket.socket.close
+        with mock.patch.object(socket.socket, "bind", side_effect=OSError("bind failed")), \
+                mock.patch.object(socket.socket, "close", autospec=True, side_effect=real_close) as close:
+            with self.assertRaises(OSError):
+                Server(port=0, users=self.users, tls_context=make_server_context(TEST_CERT, TEST_KEY))
+        close.assert_called_once()
+        self.assert_closed(close.call_args.args[0])
+
+
 class DroppedClientLoggingTest(unittest.TestCase):
     """Call ``Server.handle_client`` with a fake connection: failures happen on demand."""
 
@@ -165,7 +226,7 @@ class DroppedClientLoggingTest(unittest.TestCase):
         self.addCleanup(tmp_dir.cleanup)
         users = UserStore(os.path.join(tmp_dir.name, "users.json"), iterations=1_000)
         self.server = Server(port=0, users=users, tls_context=make_server_context(TEST_CERT, TEST_KEY))
-        self.addCleanup(self.server.sock.close)
+        self.addCleanup(self.server.close)
         self.server.running = True  # handle_client loops only while the server runs
 
     def assert_drop_logged_as_warning(self):
@@ -257,6 +318,8 @@ class ServerTest(unittest.TestCase):
             tls_context=make_server_context(TEST_CERT, TEST_KEY),
             login_throttle=self.throttle,
         )
+        # serve_forever closes the socket when it ends; this covers a thread that never ran.
+        self.addCleanup(self.server.close)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.addCleanup(self.thread.join, timeout=5)
