@@ -3,6 +3,10 @@
 HOST = "127.0.0.1"
 PORT = 65432
 ENCODING = "utf-8"
+# Longest message the server reads, in bytes of the decrypted line, not counting its "\n".
+# Far above any real request (register is a few hundred bytes). A longer line closes the
+# connection, so a client can't make the server buffer without bound.
+MAX_MESSAGE_SIZE = 64 * 1024
 
 SERVER_VERSION = "0.1.1-alpha"
 SERVER_CREATED = "2026-10-01"
@@ -26,6 +30,11 @@ TLS_CERT_FILE = "server.crt"
 TLS_KEY_FILE = "server.key"
 # A client that connects but never finishes the handshake must not block the accept loop.
 TLS_HANDSHAKE_TIMEOUT = 5.0
+# Seconds a client may stay silent after the handshake before the server drops it. The
+# server serves one client at a time, so an idle one blocks everyone else. Generous, because
+# a person at the prompt reads and types slowly. It limits each read, not a whole message:
+# a client trickling one byte at a time is not stopped (known gap, see PLAN.md step 16).
+CLIENT_IDLE_TIMEOUT = 120.0
 
 # Server logging, applied only when server.py runs as a script
 LOG_LEVEL = "INFO"
