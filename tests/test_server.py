@@ -159,8 +159,8 @@ class ServerCloseTest(unittest.TestCase):
     """The server releases its listening socket on every path, including failed start-up.
 
     These tests check that the socket is closed (``fileno() == -1``) rather than binding the
-    port again: on Windows, ``SO_REUSEADDR`` lets a second bind succeed even while the port
-    is still taken, so a rebind would prove nothing there (see task 6.3 of the fix plan).
+    port again: a failed rebind could also mean the port is in TIME_WAIT or taken by another
+    process, so ``fileno()`` is the direct check.
     """
 
     def setUp(self):
@@ -214,6 +214,39 @@ class ServerCloseTest(unittest.TestCase):
                 Server(port=0, users=self.users, tls_context=make_server_context(TEST_CERT, TEST_KEY))
         close.assert_called_once()
         self.assert_closed(close.call_args.args[0])
+
+
+class PortExclusivityTest(unittest.TestCase):
+    """A second server can't take the port of one that is listening, on any OS."""
+
+    def setUp(self):
+        tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp_dir.cleanup)
+        self.users = UserStore(os.path.join(tmp_dir.name, "users.json"), iterations=1_000)
+
+    def make_server(self, port=0):
+        server = Server(port=port, users=self.users, tls_context=make_server_context(TEST_CERT, TEST_KEY))
+        self.addCleanup(server.close)
+        return server
+
+    def test_second_server_on_a_listening_port_is_refused(self):
+        first = self.make_server()
+        thread = threading.Thread(target=first.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, timeout=5)
+        # Registered after join, so it runs first: the accept loop exits within a second.
+        self.addCleanup(setattr, first, "running", False)
+        # Listening, not just bound: Linux lets two SO_REUSEADDR sockets share a port until
+        # one of them listens.
+        self.assertTrue(first.listening.wait(timeout=5), "server did not start listening")
+        with self.assertRaises(OSError):
+            self.make_server(port=first.address[1])
+
+    @unittest.skipUnless(hasattr(socket, "SO_EXCLUSIVEADDRUSE"), "Windows-only socket option")
+    def test_windows_socket_is_exclusive(self):
+        server = self.make_server()
+        self.assertTrue(server.sock.getsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE))
+        self.assertFalse(server.sock.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR))
 
 
 class DroppedClientLoggingTest(unittest.TestCase):

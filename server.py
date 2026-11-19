@@ -79,7 +79,15 @@ class Server:
         self.listening = threading.Event()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            # Same name, different meaning. On POSIX, SO_REUSEADDR only allows a quick restart
+            # while old connections sit in TIME_WAIT; a second listener is still refused. On
+            # Windows it lets another socket bind this port while we listen, and connections
+            # reach either one, so there SO_EXCLUSIVEADDRUSE (Windows-only) forbids sharing.
+            # socket.create_server makes the same split.
+            if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            else:
+                self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.sock.bind((host, port))
             # Actual address - differs from the requested one when port=0 (used by tests).
             self.address = self.sock.getsockname()

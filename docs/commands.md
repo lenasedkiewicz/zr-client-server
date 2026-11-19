@@ -308,12 +308,15 @@ PowerShell: the same, but `>` writes UTF-16 in Windows PowerShell 5.1; use
 
 - `--stat <rev>`: show a commit's message and the list of files it changed, with
   added/removed line counts, instead of the full diff. Example: `git show --stat HEAD~1`
+- `--format='<fmt>'`: the header line(s), with the same placeholders as
+  [git log](#git-log-list-commits). Example: `git show --stat --format='%h %s' e872f44`
+  (024: one line, then the changed files).
   (what the planning commit touched). `HEAD~1` is the commit before `HEAD`.
 - `<rev> -- <path>`: show that commit's message and its diff, but only for `<path>`.
   Example: `git show ab438a5 -- README.md` (what the previous task added to the README, to
   match its wording).
 
-*First used in 004; `--stat` added in 010; `<rev> -- <path>` added in 021*
+*First used in 004; `--stat` added in 010; `<rev> -- <path>` added in 021; `--format` added in 024*
 
 ### git grep: search tracked files
 
@@ -379,11 +382,12 @@ remote-tracking branches (`origin/master`, ...) without touching your own branch
 - `--all`: fetch every configured remote, not just `origin`.
 - `--prune`: delete remote-tracking branches whose branch was deleted on the remote.
 
-- `--quiet`: no progress output.
+- `--quiet` (short: `-q`): no progress output.
 
-Example: `git fetch --all --prune` before merging, so `origin/master` is current.
+Example: `git fetch --all --prune` before merging, so `origin/master` is current;
+`git fetch -q` after a PR merge.
 
-*First used in 008; `--quiet` added in 015*
+*First used in 008; `--quiet` added in 015; `-q` added in 024*
 
 ### git pull: fetch and update the current branch
 
@@ -474,6 +478,25 @@ so a commit that reached `master` by a squash or cherry-pick shows as `-`.
 Example: `git cherry master feature/admin | grep -c '^+'` → `0` (nothing left to merge)
 
 *First used in 018*
+
+### git cherry-pick: copy a commit onto the current branch
+
+`git cherry-pick <commit>…`. Applies the changes of each given commit on top of the current
+branch as a new commit, with the same message and author but a new hash. The original
+commit stays where it was.
+
+Example: `git cherry-pick e872f44` (task 6.2 was committed after the batch 6 branch was
+pushed for its PR, so it never reached `master`; it was copied onto a new branch started
+from `master`).
+
+If it conflicts, git stops: fix the files, `git add` them, then `git cherry-pick --continue`,
+or `git cherry-pick --abort` to go back. Use it for a commit or two that are on the wrong
+branch. To move a whole branch, rebase or merge instead. Afterwards `git cherry` shows the
+original as `-`, already upstream.
+
+PowerShell: the same command.
+
+*First used in 024*
 
 ### git mv: rename a tracked file
 
