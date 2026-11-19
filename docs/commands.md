@@ -71,7 +71,12 @@ Example from 014:
 `python -c "import re; print(bool(re.match(r'^\d$', '١')), bool(re.match(r'^1$', '1\n')))"`
 → `True True` (`\d` matches an Arabic-Indic digit; `$` accepts a trailing newline).
 
-*First used in 001; console-encoding gotcha added in 014*
+Example from 022, asking Python which OS clock sits behind each `time` function:
+`python -c "import time;print(time.get_clock_info('monotonic'), time.get_clock_info('time'))"`
+→ on Windows with Python 3.13, `monotonic` is `QueryPerformanceCounter()` (`adjustable=False`)
+and `time` is `GetSystemTimePreciseAsFileTime()` (`adjustable=True`).
+
+*First used in 001; console-encoding gotcha added in 014; clock example added in 022*
 
 ### python <file>: run a script file
 
@@ -126,6 +131,22 @@ Example: `python -I -u probe.py` (a throwaway experiment in the scratchpad: whic
 each malformed input raises, and whether a text stream survives a decode error)
 
 *First used in 010*
+
+### py: the Windows Python launcher
+
+`py [-<version>] <python arguments>`. Installed with Python on Windows. It starts a chosen
+installed Python version, so you can run the same command on several versions without
+changing `PATH`. Everything after the version flag goes to Python unchanged.
+
+- `-0`: list the installed versions; `*` marks the default.
+- `-3.10`, `-3.12`, …: run that version.
+
+Example: `py -0`; `py -3.10 -m unittest discover tests` (the CI runs 3.10 and 3.14, so check
+the oldest supported version locally); `py -3.12 -c "import sys; print(sys.version)"`
+
+PowerShell: the same command. On Linux and macOS there is no `py`; use `python3.10` etc.
+
+*First used in 020*
 
 ## TLS / OpenSSL
 
@@ -288,8 +309,11 @@ PowerShell: the same, but `>` writes UTF-16 in Windows PowerShell 5.1; use
 - `--stat <rev>`: show a commit's message and the list of files it changed, with
   added/removed line counts, instead of the full diff. Example: `git show --stat HEAD~1`
   (what the planning commit touched). `HEAD~1` is the commit before `HEAD`.
+- `<rev> -- <path>`: show that commit's message and its diff, but only for `<path>`.
+  Example: `git show ab438a5 -- README.md` (what the previous task added to the README, to
+  match its wording).
 
-*First used in 004; `--stat` added in 010*
+*First used in 004; `--stat` added in 010; `<rev> -- <path>` added in 021*
 
 ### git grep: search tracked files
 
@@ -315,9 +339,9 @@ Example: `git log --oneline | head -15`; `git log --oneline origin/master..origi
 
 - `-S'<text>' -- <path>`: only commits that added or removed `<text>` in that file (the
   "pickaxe"). Used to find when test passwords first appeared, for a GitGuardian triage.
-
-PowerShell: the same; use `| Select-Object -First 15` instead of `head`.
-
+- `-<n> [<branch>]`: only the newest `n` commits, of `<branch>` instead of the current one.
+  Works the same in PowerShell, with no `head` needed. Example: `git log --oneline -3 master`
+  (is the merged PR on `master` yet?).
 - `--graph --all`: draw the branch and merge lines, for every branch and not only the
   current one. Example: `git log --all --oneline --graph`.
 - `--no-merges`: leave out merge commits, so only the commits that changed code remain.
@@ -325,7 +349,10 @@ PowerShell: the same; use `| Select-Object -First 15` instead of `head`.
   `%b` body, `%n` a newline. Example: `git log --format='%h %s%n%b' 8bc6362..HEAD --no-merges`
   (every fix since the review plan, with its full message).
 
-*First used in 005; `a..b` added in 008; `-S` added in 018; `--graph`, `--all`, `--no-merges` and `--format` added with the pre-review skill*
+PowerShell: the same; use `| Select-Object -First 15` instead of `head`.
+
+*First used in 005; `a..b` added in 008; `-S` added in 018; `-<n> <branch>` added in 021;
+`--graph`, `--all`, `--no-merges` and `--format` added with the pre-review skill*
 
 ### git branch --show-current: print the current branch
 
@@ -367,10 +394,12 @@ your branch and the remote have diverged.
 - `--ff-only`: only fast-forward, i.e. move your branch pointer forward to the remote's
   commit. If the branches have diverged, git refuses and changes nothing, so a pull never
   creates a surprise merge commit.
+- `-q`: quiet, no progress or summary output.
 
-Example: `git pull --ff-only` on `master` before branching for a new fix batch.
+Example: `git pull --ff-only` on `master` before branching for a new fix batch;
+`git pull -q --ff-only` right after a PR merge.
 
-*First used in the step 16 plan commit (`docs:` commit, no journal entry)*
+*First used in the step 16 plan commit (`docs:` commit, no journal entry); `-q` added in 020*
 
 ### git checkout: switch branches
 
@@ -380,14 +409,17 @@ does only this.
 
 - `-b <new-branch>`: create the branch at the current commit and switch to it
   (`git switch -c <new-branch>` in newer git).
-
-Example: `git checkout feature/admin`; `git checkout -b fix/server-survives-bad-client`
-
 - `-b <new-branch> <start>`: create the branch at `<start>` instead of the current commit.
   Example: `git checkout -b chore/pre-review-skill master` (start from `master` while
   standing on an unmerged fix branch).
+- `-q`: quiet, no "Switched to branch" message.
 
-*First used in 008; `-b` added in the step 16 plan commit; start point added with the pre-review skill*
+Example: `git checkout feature/admin`; `git checkout -b fix/server-survives-bad-client`;
+`git checkout -q master`; `git switch fix/server-limits` (back to batch 5's branch from an
+already-merged one)
+
+*First used in 008; `-b` added in the step 16 plan commit; `-q` added in 020; `git switch`
+first used in 021; start point added with the pre-review skill*
 
 ### git merge: join another branch into the current one
 
@@ -627,6 +659,16 @@ Example: `git for-each-ref --sort=-committerdate --format='%(committerdate:short
 Example: `git rev-list --count master..origin/ci/github-actions`
 
 *First used in 016*
+
+### git rev-parse: turn a name into a commit hash
+
+`git rev-parse <rev>…`. Prints the full commit hash for each branch, tag or other name.
+Two names that print the same hash point at the same commit.
+
+Example: `git rev-parse fix/server-limits origin/fix/server-limits`. Two identical lines
+mean the local branch and the remote copy are in sync, so it's safe to keep working on it.
+
+*First used in 021*
 
 ### git reflog: show where HEAD has been
 
@@ -881,7 +923,11 @@ end of file.
 PowerShell: `$null | python server.py; "exit=$LASTEXITCODE"` (`$LASTEXITCODE` holds a
 native program's exit code; `$?` is only `True`/`False`).
 
-*First used in 006*
+`2>/dev/null` goes the other way: it throws away the command's error output (stream 2,
+stderr) and keeps normal output. Example: `ls docs/concepts 2>/dev/null` prints nothing
+instead of an error if the folder doesn't exist. PowerShell: `2>$null`.
+
+*First used in 006; `2>/dev/null` added in 021*
 
 ### head / tail: first or last lines
 

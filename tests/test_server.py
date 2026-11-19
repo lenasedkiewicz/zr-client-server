@@ -16,7 +16,7 @@ from unittest import mock
 
 from client import make_client_context
 from config import ENCODING, HOST, ROLE_USER, SERVER_CREATED, SERVER_VERSION, USERS_FILE_MODE
-from protocol import ConnectionClosed, receive_message, send_message
+from protocol import ConnectionClosed, MessageTooLong, receive_message, send_message
 from server import Server, make_server_context
 from throttle import LoginThrottle
 from users import UserStore
@@ -125,6 +125,18 @@ class HandleRequestTest(unittest.TestCase):
             "data": {"version": SERVER_VERSION, "created": SERVER_CREATED},
         })
 
+    def test_uptime_is_the_difference_between_clock_readings(self):
+        tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp_dir.cleanup)
+        users = UserStore(os.path.join(tmp_dir.name, "users.json"), iterations=1_000)
+        now = [100.0]  # fake clock: the test moves it, nothing sleeps
+        server = Server(port=0, users=users, tls_context=make_server_context(TEST_CERT, TEST_KEY),
+                        clock=lambda: now[0])
+        self.addCleanup(server.sock.close)
+        now[0] = 3725.5
+        response = server.handle_request({"command": "uptime"}, {"user": "alice"})
+        self.assertEqual(response["data"], {"uptime_seconds": 3625.5, "uptime": "1:00:25"})
+
     def test_handler_value_error_becomes_error_reply(self):
         response = self.handle({"command": "login", "args": {"username": 42}}, user=None)
         self.assertEqual(response, {
@@ -184,6 +196,36 @@ class DroppedClientLoggingTest(unittest.TestCase):
     def test_unterminated_message_reply_to_a_gone_client_is_not_a_second_warning(self):
         # The client has hung up, so a failed reply is expected: one warning, no traceback.
         with mock.patch("server.receive_message", side_effect=ConnectionClosed(discarded=19)), \
+                mock.patch("server.send_message", side_effect=BrokenPipeError("gone")):
+            self.assert_drop_logged_as_warning()
+
+    def test_oversized_message_gets_an_error_reply_and_ends_the_session(self):
+        with mock.patch("server.receive_message", side_effect=MessageTooLong(16)) as receive, \
+                mock.patch("server.send_message") as send:
+            self.assert_drop_logged_as_warning()
+        receive.assert_called_once()  # no second read: the tail of the line is never parsed
+        send.assert_called_once()
+        response = send.call_args.args[1]
+        self.assertEqual(response["status"], "error")
+        self.assertIn("too long", response["message"])
+
+    def test_oversized_message_reply_to_a_gone_client_is_not_a_second_warning(self):
+        with mock.patch("server.receive_message", side_effect=MessageTooLong(16)), \
+                mock.patch("server.send_message", side_effect=BrokenPipeError("gone")):
+            self.assert_drop_logged_as_warning()
+
+    def test_idle_client_gets_an_error_reply_and_ends_the_session(self):
+        with mock.patch("server.receive_message", side_effect=TimeoutError("timed out")) as receive, \
+                mock.patch("server.send_message") as send:
+            self.assert_drop_logged_as_warning()
+        receive.assert_called_once()  # no second read from a stream that timed out
+        send.assert_called_once()
+        response = send.call_args.args[1]
+        self.assertEqual(response["status"], "error")
+        self.assertIn("Idle", response["message"])
+
+    def test_idle_client_reply_to_a_gone_client_is_not_a_second_warning(self):
+        with mock.patch("server.receive_message", side_effect=TimeoutError("timed out")), \
                 mock.patch("server.send_message", side_effect=BrokenPipeError("gone")):
             self.assert_drop_logged_as_warning()
 
@@ -285,10 +327,9 @@ class ServerTest(unittest.TestCase):
         first = self.request("uptime")
         self.assertEqual(first["status"], "ok")
         self.assertEqual(first["command"], "uptime")
-        self.assertIn("uptime", first["data"])
-        time.sleep(0.05)
-        second = self.request("uptime")
-        self.assertGreater(second["data"]["uptime_seconds"], first["data"]["uptime_seconds"])
+        self.assertEqual(set(first["data"]), {"uptime_seconds", "uptime"})
+        self.assertGreaterEqual(first["data"]["uptime_seconds"], 0)
+        # The arithmetic is tested with a fake clock in HandleRequestTest.
 
     def test_info(self):
         self.login_as()
@@ -337,8 +378,68 @@ class ServerTest(unittest.TestCase):
 
     def test_nesting_too_deep(self):
         # 2000 levels parse fine on Python 3.13; 100 000 raise RecursionError.
+        # Python 3.14 limits recursion by C stack size, so keep the depth well past any limit
+        # and raise the size limit for this test instead of shrinking the depth to fit it.
         depth = 100_000
+        self.server.max_message_size = 2 * depth
         self.assert_malformed_line_rejected(b"[" * depth + b"]" * depth)
+
+    def padded_help(self, size):
+        """A ``help`` request exactly ``size`` bytes long (padding in ``args``), plus newline."""
+        line = json.dumps({"command": "help", "args": {"pad": ""}})
+        line = line.replace('""', '"' + "x" * (size - len(line)) + '"')
+        self.assertEqual(len(line.encode(ENCODING)), size)
+        return line.encode(ENCODING) + b"\n"
+
+    def test_message_at_size_limit_is_answered(self):
+        self.server.max_message_size = 200
+        self.sock.sendall(self.padded_help(200))
+        self.assertEqual(receive_message(self.sock_file)["status"], "ok")
+        self.assertEqual(self.request("help")["status"], "ok")  # the session goes on
+
+    def test_message_over_size_limit_closes_the_connection(self):
+        self.server.max_message_size = 200
+        with self.assertLogs("server", level="WARNING") as logs:
+            self.sock.sendall(self.padded_help(201))
+            response = receive_message(self.sock_file)
+            with self.assertRaises(ConnectionClosed):
+                receive_message(self.sock_file)
+        self.assertEqual(response["status"], "error")
+        self.assertIn("too long", response["message"])
+        self.assertNotIn("help", logs.output[0])  # the content is never logged
+        self.disconnect()
+        self.assert_server_still_serves()
+
+    def test_tail_of_an_oversized_line_is_never_run(self):
+        # Request smuggling: padding up to the limit, then a valid command on the same line.
+        # If the session went on, the next read would return just the command and run it.
+        self.server.max_message_size = 200
+        self.login_as()
+        self.sock.sendall(b"x" * 201 + b'{"command": "stop"}\n')
+        self.assertIn("too long", receive_message(self.sock_file)["message"])
+        with self.assertRaises(ConnectionClosed):
+            receive_message(self.sock_file)
+        self.disconnect()
+        self.assert_server_still_serves()
+        self.assertTrue(self.thread.is_alive())
+
+    def test_idle_client_is_dropped_and_the_next_one_served(self):
+        # The timeout is set during the handshake, so reconnect after lowering it.
+        self.server.idle_timeout = 0.5
+        self.disconnect()
+        self.connect()
+        self.login_as()
+        with self.assertLogs("server", level="WARNING") as logs:
+            started = time.monotonic()
+            response = receive_message(self.sock_file)  # send nothing, just wait
+            with self.assertRaises(ConnectionClosed):
+                receive_message(self.sock_file)
+        self.assertLess(time.monotonic() - started, 4)  # well before the client's own 5 s
+        self.assertEqual(response["status"], "error")
+        self.assertIn("Idle", response["message"])
+        self.assertIn("idle", logs.output[0])
+        self.disconnect()
+        self.assert_server_still_serves()
 
     def test_register(self):
         response = self.register()
