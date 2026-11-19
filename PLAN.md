@@ -360,9 +360,11 @@ clean-ups. Full plan: [`docs/plans/001-code-review-2026-10-21.md`](docs/plans/00
   connect/disconnect and start/stop, `WARNING` for a failed handshake or a lost connection.
   Requests are never logged, because `login` and `register` carry passwords. Messages for the
   person at the terminal (missing certificate, admin setup) stay `print`.
-- **Also planned:** repo-specific checklist skills (`error-handling-review`,
+- **Pre-review skill:** the seven checklist skills first planned here (`error-handling-review`,
   `negative-tests`, `trust-boundary-check`, `resource-lifecycle`, `logging-conventions`,
-  `cross-platform-check`, `docs-drift-check`), built after the batch each one encodes.
+  `cross-platform-check`, `docs-drift-check`) became one skill with one section each:
+  `.claude/skills/pre-review/SKILL.md`. Run it on a branch before opening a PR. It reports
+  findings as `file:line` and fixes nothing. After each review, add what it missed.
 - **Commit:** `docs: plan fixes for the 2026-10-21 code review (step 16)`.
 
 ## Step 17 — continuous integration (GitHub Actions)
