@@ -47,12 +47,18 @@ finds every `test*.py` in the `tests` folder and runs it.
   `tests.test_protocol tests.test_server.HandleRequestTest`. Handy for running only the fast
   unit tests without the end-to-end class.
 - `-v`: verbose; print each test name with `ok`, `FAIL` or `skipped '<reason>'`.
+- `-k <pattern>`: run only the tests whose full name contains `<pattern>` (or matches it, if
+  it has `*`). Repeat `-k` to select several. In 025 this ran every new client test except
+  the Ctrl+C ones against the old code: there, a mocked `KeyboardInterrupt` escaped and
+  aborted the whole run.
 
 Example: `python -m unittest discover tests`,
 `python -m unittest -v tests.test_server.ServerTest.test_users_file_is_owner_only`,
-`python -m unittest -v tests.test_protocol tests.test_server.HandleRequestTest tests.test_server.VersionTest`
+`python -m unittest -v tests.test_protocol tests.test_server.HandleRequestTest tests.test_server.VersionTest`,
+`python -m unittest -k malformed -k too_long tests.test_client`
 
-*First used in 001; single test and `-v` added in 004; several modules/classes added in 013*
+*First used in 001; single test and `-v` added in 004; several modules/classes added in 013;
+`-k` added in 025*
 
 ### python -c: run a one-line program
 
@@ -822,11 +828,13 @@ safe for a new scratch file like `"$TEMP/edit.py"`.
 
 - `-A`: show hidden characters: `$` at each line end, `^M` for a Windows `\r`. Useful
   when a text match fails and you suspect line endings or tabs.
+- `-n`: number every line, like the editor's gutter, so you can refer to `client.py:84`.
+  PowerShell: `Get-Content client.py | ForEach-Object { "{0,4}  {1}" -f $_.ReadCount, $_ }`.
 
 PowerShell: `Get-Content <file>`. To append, use `Add-Content -Encoding utf8 <file> <text>`.
 To overwrite, use `Set-Content -Encoding utf8 <file> <text>`.
 
-*First used in 001; `>` added in 002; `-A` added in 003*
+*First used in 001; `>` added in 002; `-A` added in 003; `-n` added in 025*
 
 ### cp: copy files
 

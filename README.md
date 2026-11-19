@@ -61,6 +61,9 @@ Start the client (terminal 2):
 python client.py
 ```
 
+If something goes wrong (no server, a network error, an unexpected reply), the client prints
+one line saying why and exits, without a traceback.
+
 Then type commands at the `>` prompt.
 
 ## First use

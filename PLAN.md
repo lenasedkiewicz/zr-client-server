@@ -102,6 +102,12 @@ zr-client-server/
 - On `stop` response (or when server closes the connection) the client prints a message and
   exits → satisfies "stops server and client simultaneously".
 - Handles `ConnectionRefusedError` (server not running) and `Ctrl+C` / EOF.
+- *(step 16, task 7.1)* Every failure ends with a one-line message, never a traceback: any
+  connect error (timeout, unreachable, unknown host), Ctrl+C away from the prompt, and a reply
+  that is too long, malformed or the wrong shape. `check_response` checks the reply's shape
+  first: the client trusts the server no more than the server trusts the client. After an
+  unexpected reply the client disconnects, because the session state can no longer be
+  trusted.
 
 ## Step 6 — tests (`tests/test_server.py`, stdlib `unittest`)
 - Start server in a background thread on a free port; connect a raw socket;
