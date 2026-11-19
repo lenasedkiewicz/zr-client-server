@@ -125,6 +125,18 @@ class HandleRequestTest(unittest.TestCase):
             "data": {"version": SERVER_VERSION, "created": SERVER_CREATED},
         })
 
+    def test_uptime_is_the_difference_between_clock_readings(self):
+        tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp_dir.cleanup)
+        users = UserStore(os.path.join(tmp_dir.name, "users.json"), iterations=1_000)
+        now = [100.0]  # fake clock: the test moves it, nothing sleeps
+        server = Server(port=0, users=users, tls_context=make_server_context(TEST_CERT, TEST_KEY),
+                        clock=lambda: now[0])
+        self.addCleanup(server.sock.close)
+        now[0] = 3725.5
+        response = server.handle_request({"command": "uptime"}, {"user": "alice"})
+        self.assertEqual(response["data"], {"uptime_seconds": 3625.5, "uptime": "1:00:25"})
+
     def test_handler_value_error_becomes_error_reply(self):
         response = self.handle({"command": "login", "args": {"username": 42}}, user=None)
         self.assertEqual(response, {
@@ -315,10 +327,9 @@ class ServerTest(unittest.TestCase):
         first = self.request("uptime")
         self.assertEqual(first["status"], "ok")
         self.assertEqual(first["command"], "uptime")
-        self.assertIn("uptime", first["data"])
-        time.sleep(0.05)
-        second = self.request("uptime")
-        self.assertGreater(second["data"]["uptime_seconds"], first["data"]["uptime_seconds"])
+        self.assertEqual(set(first["data"]), {"uptime_seconds", "uptime"})
+        self.assertGreaterEqual(first["data"]["uptime_seconds"], 0)
+        # The arithmetic is tested with a fake clock in HandleRequestTest.
 
     def test_info(self):
         self.login_as()

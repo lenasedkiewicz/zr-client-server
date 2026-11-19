@@ -62,8 +62,12 @@ class Server:
         login_throttle=None,
         max_message_size=MAX_MESSAGE_SIZE,
         idle_timeout=CLIENT_IDLE_TIMEOUT,
+        clock=time.monotonic,
     ):
-        self.start_time = time.time()
+        # Monotonic: a system clock moved back (NTP, a manual change) must not make uptime
+        # negative. Injectable so tests can move time forward without sleeping.
+        self.clock = clock
+        self.start_time = self.clock()
         self.max_message_size = max_message_size
         self.idle_timeout = idle_timeout
         self.users = users if users is not None else UserStore()
@@ -90,7 +94,7 @@ class Server:
         }
 
     def cmd_uptime(self, args, session):
-        seconds = time.time() - self.start_time
+        seconds = self.clock() - self.start_time
         return {
             "uptime_seconds": round(seconds, 2),
             "uptime": str(datetime.timedelta(seconds=int(seconds))),

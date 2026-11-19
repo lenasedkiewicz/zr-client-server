@@ -30,3 +30,4 @@ Steps 1–7 of `PLAN.md` were built before the journal started and have no entri
 - 019 · 2026-11-11 · [Reject an unterminated final frame](019-reject-unterminated-final-frame.md): no `\n`, no message; log the size, never the bytes; a best-effort reply that fails quietly
 - 020 · 2026-11-13 · [Limit the size of one message](020-limit-message-size.md): read one byte past the limit; on an over-long line reply and close, because the unread tail would be the next request
 - 021 · 2026-11-16 · [Drop clients that stay idle too long](021-idle-timeout.md): a timeout on every read frees the single slot; TimeoutError before OSError; slowloris recorded as a known gap; Windows drops the last reply on reset
+- 022 · 2026-11-17 · [Measure uptime with a monotonic clock](022-uptime-monotonic-clock.md): wall clock for "what time is it", monotonic for "how long"; an injected fake clock replaces a sleep in the test
