@@ -97,6 +97,45 @@ class ClientMainTest(unittest.TestCase):
                 self.assertIn(str(error), output)
                 self.context.wrap_socket.assert_not_called()
 
+    def test_each_wait_has_its_own_limit(self):
+        raw_sock = self.create_connection.return_value
+
+        def wrap_socket(sock, server_hostname):
+            # The handshake limit must be in place before the handshake starts.
+            sock.settimeout.assert_called_once_with(client.HANDSHAKE_WAIT_TIMEOUT)
+            return self.sock
+
+        self.context.wrap_socket.side_effect = wrap_socket
+        self.receive.return_value = {"status": "ok", "command": "help", "data": {}}
+        self.run_client()
+        self.create_connection.assert_called_once_with((HOST, PORT), timeout=client.CONNECT_TIMEOUT)
+        self.context.wrap_socket.assert_called_once_with(raw_sock, server_hostname=HOST)
+        self.sock.settimeout.assert_called_once_with(client.REPLY_TIMEOUT)
+
+    def test_handshake_timeout_says_the_server_may_be_busy(self):
+        self.context.wrap_socket.side_effect = TimeoutError("The handshake operation timed out")
+        output = self.run_client()
+        self.assertIn(
+            f"No answer from the server within {client.HANDSHAKE_WAIT_TIMEOUT:g} s - it may be busy",
+            output,
+        )
+        self.create_connection.return_value.close.assert_called_once()
+        self.input.assert_not_called()
+
+    def test_send_or_reply_timeout_disconnects(self):
+        for name, step in (("send", self.send), ("reply", self.receive)):
+            with self.subTest(step=name):
+                self.reset_session()
+                self.send.reset_mock(side_effect=True)
+                step.side_effect = TimeoutError("timed out")
+                output = self.run_client()
+                self.assertIn(
+                    f"No reply from the server within {client.REPLY_TIMEOUT:g} s - disconnecting",
+                    output,
+                )
+                self.assertNotIn("Connection closed by the server", output)
+                self.assert_disconnected_after_one_command()
+
     def test_ctrl_c_during_the_handshake(self):
         self.context.wrap_socket.side_effect = KeyboardInterrupt
         self.assertIn("Interrupted", self.run_client())

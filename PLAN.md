@@ -108,6 +108,12 @@ zr-client-server/
   first: the client trusts the server no more than the server trusts the client. After an
   unexpected reply the client disconnects, because the session state can no longer be
   trusted.
+- *(step 16, task 7.2)* Every wait has a limit, each with its own message (`config.py`):
+  `CONNECT_TIMEOUT` (5 s), `HANDSHAKE_WAIT_TIMEOUT` (10 s) and `REPLY_TIMEOUT` (10 s, for each
+  send and reply). While the server serves another client, a new client's TCP connect still
+  succeeds from the `listen()` backlog, but its TLS handshake waits for `accept()`: on timeout
+  the client says the server may be busy. After a reply timeout it disconnects without
+  reading again (same `makefile()` caveat as task 5.2). The prompt itself never times out.
 
 ## Step 6 — tests (`tests/test_server.py`, stdlib `unittest`)
 - Start server in a background thread on a free port; connect a raw socket;

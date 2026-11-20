@@ -419,13 +419,20 @@ does only this.
   Example: `git checkout -b chore/pre-review-skill master` (start from `master` while
   standing on an unmerged fix branch).
 - `-q`: quiet, no "Switched to branch" message.
+- ⚠️ `-- <path>…`: restore the files from the index, which **throws away** their uncommitted
+  changes, with no undo. Safe only for changes you made a moment ago on purpose, or ones
+  stashed first. In 026, after `git stash push -- client.py config.py` and a temporary edit
+  to the old code, `git checkout -q client.py config.py && git stash pop -q` dropped the
+  temporary edit and brought the fix back. The `--` may be left out when no branch has the
+  same name as the file, but with it git never mistakes a path for a branch. Newer git:
+  `git restore <path>`.
 
 Example: `git checkout feature/admin`; `git checkout -b fix/server-survives-bad-client`;
 `git checkout -q master`; `git switch fix/server-limits` (back to batch 5's branch from an
 already-merged one)
 
 *First used in 008; `-b` added in the step 16 plan commit; `-q` added in 020; `git switch`
-first used in 021; start point added with the pre-review skill*
+first used in 021; start point added with the pre-review skill; `-- <path>` added in 026*
 
 ### git merge: join another branch into the current one
 

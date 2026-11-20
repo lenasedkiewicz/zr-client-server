@@ -5,7 +5,14 @@ import json
 import socket
 import ssl
 
-from config import HOST, PORT, TLS_CERT_FILE
+from config import (
+    CONNECT_TIMEOUT,
+    HANDSHAKE_WAIT_TIMEOUT,
+    HOST,
+    PORT,
+    REPLY_TIMEOUT,
+    TLS_CERT_FILE,
+)
 from protocol import ConnectionClosed, MessageTooLong, receive_message, send_message
 
 
@@ -56,9 +63,12 @@ def check_response(response):
 
 
 def connect(context):
-    """Open the TLS connection to the server, or print why not and return None."""
+    """Open the TLS connection to the server, or print why not and return None.
+
+    Every wait has a limit: the connect, the handshake, and then each send and reply.
+    """
     try:
-        raw_sock = socket.create_connection((HOST, PORT))
+        raw_sock = socket.create_connection((HOST, PORT), timeout=CONNECT_TIMEOUT)
     except ConnectionRefusedError:
         print(f"Cannot connect to {HOST}:{PORT} - is the server running?")
         return None
@@ -66,16 +76,31 @@ def connect(context):
         # Timed out, host or network unreachable, unknown host name (socket.gaierror), ...
         print(f"Cannot connect to {HOST}:{PORT}: {error}")
         return None
+    # The TLS socket inherits the raw socket's timeout, so it limits the handshake.
+    raw_sock.settimeout(HANDSHAKE_WAIT_TIMEOUT)
     try:
-        return context.wrap_socket(raw_sock, server_hostname=HOST)
+        sock = context.wrap_socket(raw_sock, server_hostname=HOST)
     except ssl.SSLCertVerificationError as error:
         raw_sock.close()
         print(f"Server certificate rejected: {error.verify_message}")
+        return None
+    except TimeoutError:
+        # Before OSError, its parent. A connect that worked only means we are in the
+        # server's listen() backlog; it serves one client at a time.
+        raw_sock.close()
+        print(
+            f"No answer from the server within {HANDSHAKE_WAIT_TIMEOUT:g} s - it may be busy "
+            "with another client. Try again later."
+        )
         return None
     except OSError as error:
         raw_sock.close()
         print(f"TLS handshake failed: {error}")
         return None
+    # From now on the limit is per send and per reply. input() doesn't touch the socket, so
+    # a person thinking at the prompt is never timed out.
+    sock.settimeout(REPLY_TIMEOUT)
+    return sock
 
 
 def main():
@@ -120,6 +145,11 @@ def run_session(sock):
                 send_message(sock, request)
                 response = receive_message(sock_file)
                 check_response(response)
+            except TimeoutError:
+                # Before OSError, its parent. After a timeout the makefile() stream may be
+                # inconsistent, and a late reply would be read as the next one: disconnect.
+                print(f"No reply from the server within {REPLY_TIMEOUT:g} s - disconnecting")
+                return
             except (ConnectionClosed, OSError):
                 print("Connection closed by the server")
                 return

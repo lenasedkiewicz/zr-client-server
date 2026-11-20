@@ -36,6 +36,16 @@ TLS_HANDSHAKE_TIMEOUT = 5.0
 # a client trickling one byte at a time is not stopped (known gap, see PLAN.md step 16).
 CLIENT_IDLE_TIMEOUT = 120.0
 
+# Client: how long it waits for the server (CLIENT_IDLE_TIMEOUT above is the other way
+# round: how long the server waits for a client). Each wait has its own likely cause.
+# Connect: a refused connect fails at once, so this only matters for an unreachable host.
+CONNECT_TIMEOUT = 5.0
+# Handshake: the OS completes the TCP connect from the listen() backlog, but the handshake
+# waits until the server calls accept(), i.e. until it has finished with another client.
+HANDSHAKE_WAIT_TIMEOUT = 10.0
+# Each send or reply; the slowest command is login/register (PBKDF2, about 0.5 s).
+REPLY_TIMEOUT = 10.0
+
 # Server logging, applied only when server.py runs as a script
 LOG_LEVEL = "INFO"
 LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"

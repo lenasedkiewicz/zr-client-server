@@ -121,6 +121,10 @@ Passwords are typed without being shown. Until you log in, only `help`, `registe
   reset, and the client says only "Connection closed by the server". Known gap: a client
   that sends one byte at a time, just under every 120 seconds, is not stopped
   ("slowloris"); only a deadline per message would stop it.
+- The client doesn't wait for ever either. While the server is busy with another client, a
+  second client gives up after 10 seconds with "it may be busy with another client". It also
+  disconnects if a reply takes longer than 10 seconds. The connect, handshake and reply limits
+  are in `config.py`. Waiting at the prompt is never timed out.
 - Inside TLS, each message is a single JSON object terminated with a newline (`\n`).
   The newline is required: if the connection closes before it arrives, the bytes are
   discarded unread, even if they are valid JSON. The server logs the drop and sends a
