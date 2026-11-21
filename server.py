@@ -7,6 +7,7 @@ Every connection is wrapped in TLS; the server refuses to start without a certif
 """
 
 import datetime
+import errno
 import logging
 import socket
 import ssl
@@ -337,16 +338,25 @@ class Server:
             logger.info("Server stopped")
 
 
-if __name__ == "__main__":
-    # Only the entry point configures logging; the handlers are the application's choice.
-    logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
+def main():
+    """Start the server from the command line; exit with code 1 if it can't start."""
     try:
-        server = Server()
+        server = Server(host=HOST, port=PORT)
     except FileNotFoundError:
         # Fail closed: never fall back to plain text.
         print(f"TLS certificate or key not found ({TLS_CERT_FILE}, {TLS_KEY_FILE}).")
         print("Create them once (Git Bash) in the project folder:")
         print(f"  {OPENSSL_COMMAND}")
+        sys.exit(1)
+    except OSError as error:
+        # bind() failed. Must come after FileNotFoundError, which is an OSError too. Compare
+        # the error code, not the text: the OS message is localised (and 10048 on Windows is
+        # errno.EADDRINUSE there, so one check covers both systems).
+        if error.errno == errno.EADDRINUSE:
+            print(f"Could not listen on {HOST}:{PORT}: the port is already in use.")
+            print("Another server or program may be running. Stop it, or change PORT in config.py.")
+        else:  # e.g. WinError 10013 (a port Windows reserves) or a HOST this machine doesn't have
+            print(f"Could not listen on {HOST}:{PORT} ({error}).")
         sys.exit(1)
     # The with block closes the socket on every way out, sys.exit() included.
     with server:
@@ -359,3 +369,10 @@ if __name__ == "__main__":
             print("\nAdmin setup cancelled - server not started")
             sys.exit(1)
         server.serve_forever()
+
+
+if __name__ == "__main__":
+    # Only the entry point configures logging; the handlers are the application's choice.
+    # Outside main(), so tests that call main() don't add handlers to the root logger.
+    logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
+    main()

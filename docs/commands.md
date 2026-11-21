@@ -138,6 +138,21 @@ each malformed input raises, and whether a text stream survives a decode error)
 
 *First used in 010*
 
+### PYTHONPATH: extra folders to import from
+
+`PYTHONPATH=<dir> python <script>`. Adds `<dir>` to the front of `sys.path` for that one
+run. Python adds a script's *own* folder, not the current one, so a probe in the scratchpad
+can't `import config` from the repo without it. `.` means the current folder.
+
+Example: `PYTHONPATH=. python "$S/hold_port.py"`: a scratchpad script that imports `config`
+from the repo, holds the server's port, and runs `python server.py` to see what it prints.
+
+PowerShell: `$env:PYTHONPATH = '.'; python $S\hold_port.py`. This stays set for the rest of
+the session, so clear it afterwards: `Remove-Item Env:PYTHONPATH`. Don't combine it with
+[python -I](#python--i-isolated-mode), which ignores `PYTHONPATH`.
+
+*First used in 027*
+
 ### py: the Windows Python launcher
 
 `py [-<version>] <python arguments>`. Installed with Python on Windows. It starts a chosen
@@ -323,6 +338,32 @@ PowerShell: the same, but `>` writes UTF-16 in Windows PowerShell 5.1; use
   match its wording).
 
 *First used in 004; `--stat` added in 010; `<rev> -- <path>` added in 021; `--format` added in 024*
+
+### git archive: export a commit's files
+
+`git archive <rev> | tar -x -C <dir>`. Writes the files of a commit as a tar archive to
+stdout, and `tar -x -C <dir>` unpacks them into `<dir>`. The result is a plain copy with no
+`.git` and no untracked files, so you can change and test it without touching your
+working tree.
+
+- `tar -x`: extract. `-C <dir>`: change to `<dir>` first (it must exist).
+- Files that git ignores (`server.crt`, `users.json`) are not in the copy.
+
+Example (the "does the new test fail without the fix?" check in 027, on a copy):
+`git archive HEAD | tar -x -C "$S/c1"`, then
+`git show 65d08cd:server.py > "$S/c1/server.py"` and run the tests in `$S/c1`. `>` is
+safe here because it writes into the copy, not the repo.
+
+PowerShell: don't pipe it. Windows PowerShell 5.1 turns output piped between two programs
+into text, which corrupts a binary stream like a tar archive (PowerShell 7.4+ passes the
+bytes through). Write a file instead: `git archive -o $S\c1.tar HEAD; tar -x -f $S\c1.tar -C $S\c1`.
+`tar` ships with Windows 10+, and `-o` (output file) and `tar -f` (archive file) replace
+the pipe.
+⚠️ Clean up the copy afterwards (`rm -rf "$S/c1"`, PowerShell
+`Remove-Item -Recurse -Force $S\c1`), and check the path first: it's the scratchpad, not the
+repo.
+
+*First used in 027*
 
 ### git grep: search tracked files
 

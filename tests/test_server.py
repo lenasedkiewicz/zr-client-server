@@ -1,6 +1,7 @@
 """Tests for the server: version format, request handling (no sockets) and end-to-end."""
 
 import contextlib
+import errno
 import io
 import json
 import os
@@ -17,8 +18,9 @@ import unittest
 from unittest import mock
 
 import client
+import server as server_module  # "server" is taken: tests use it for Server instances
 from client import make_client_context
-from config import ENCODING, HOST, ROLE_USER, SERVER_CREATED, SERVER_VERSION, USERS_FILE_MODE
+from config import ENCODING, HOST, PORT, ROLE_USER, SERVER_CREATED, SERVER_VERSION, USERS_FILE_MODE
 from protocol import ConnectionClosed, MessageTooLong, receive_message, send_message
 from server import Server, make_server_context
 from throttle import LoginThrottle
@@ -250,6 +252,50 @@ class PortExclusivityTest(unittest.TestCase):
         server = self.make_server()
         self.assertTrue(server.sock.getsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE))
         self.assertFalse(server.sock.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR))
+
+
+class ServerMainTest(unittest.TestCase):
+    """``server.main()`` turns a failed start-up into one message and exit code 1."""
+
+    def run_main(self):
+        """Call ``main()``; return the printed text. A traceback would fail the test with it."""
+        output = io.StringIO()
+        # main() would read the real users.json and ask for an admin; neither is under test.
+        with mock.patch("server.UserStore"), mock.patch("server.ensure_admin"), \
+                contextlib.redirect_stdout(output):
+            with self.assertRaises(SystemExit) as raised:
+                server_module.main()
+        self.assertEqual(raised.exception.code, 1)
+        return output.getvalue()
+
+    def test_taken_port_gives_a_message(self):
+        # A real conflict, not a mock: another program listens on the port first.
+        holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.addCleanup(holder.close)
+        holder.bind((HOST, 0))
+        holder.listen()
+        port = holder.getsockname()[1]
+        test_context = make_server_context(TEST_CERT, TEST_KEY)  # server.crt is not in CI
+        with mock.patch("server.PORT", port), \
+                mock.patch("server.make_server_context", return_value=test_context):
+            output = self.run_main()
+        self.assertIn(f"Could not listen on {HOST}:{port}: the port is already in use.", output)
+        self.assertIn("change PORT in config.py", output)
+
+    def test_other_bind_error_gives_a_message(self):
+        # e.g. WinError 10013: a port Windows reserves (Hyper-V), or a HOST this machine lacks.
+        error = OSError(errno.EACCES, "Permission denied")
+        with mock.patch("server.Server", side_effect=error):
+            output = self.run_main()
+        self.assertIn(f"Could not listen on {HOST}:{PORT} (", output)
+        self.assertIn("Permission denied", output)
+
+    def test_missing_certificate_still_gives_the_openssl_hint(self):
+        # FileNotFoundError is an OSError too: its own except clause must come first.
+        with mock.patch("server.Server", side_effect=FileNotFoundError(2, "No such file")):
+            output = self.run_main()
+        self.assertIn("TLS certificate or key not found", output)
+        self.assertNotIn("Could not listen", output)
 
 
 class DroppedClientLoggingTest(unittest.TestCase):

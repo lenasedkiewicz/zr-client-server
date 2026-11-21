@@ -78,6 +78,12 @@ zr-client-server/
   `SO_REUSEADDR`. On POSIX, `SO_REUSEADDR` only allows a quick restart past `TIME_WAIT`. On
   Windows it would let a second server bind the port while ours listens, and take some of its
   connections. This is the same split as `socket.create_server`.
+- **Start-up errors** (step 16, follow-up to task 6.3, found by `pre-review`): `main()` turns a
+  failed `bind()` into one message and exit code 1, never a traceback. A taken port
+  (`errno.EADDRINUSE`, which is 10048 on Windows) says to stop the other program or change
+  `PORT`. Any other `OSError` prints the address and the error. `FileNotFoundError` (missing
+  certificate) is an `OSError` too, so its clause comes first. `logging.basicConfig` stays
+  under `__main__`, so tests can call `main()`.
 - Command dispatch via a dict `{name: (handler, description)}` — `help` is generated from
   this same dict, so it always lists exactly the implemented commands.
 - Handlers:

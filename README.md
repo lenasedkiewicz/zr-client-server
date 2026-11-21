@@ -55,6 +55,9 @@ Start the server (terminal 1):
 python server.py
 ```
 
+If the port is taken (another server or program is listening on it), the server says so and
+exits with code 1. Stop the other one, or change `PORT` in `config.py`.
+
 Start the client (terminal 2):
 
 ```bash
