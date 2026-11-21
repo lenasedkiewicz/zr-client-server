@@ -1,5 +1,7 @@
 """Tests for the server: version format, request handling (no sockets) and end-to-end."""
 
+import contextlib
+import io
 import json
 import os
 import re
@@ -14,6 +16,7 @@ import time
 import unittest
 from unittest import mock
 
+import client
 from client import make_client_context
 from config import ENCODING, HOST, ROLE_USER, SERVER_CREATED, SERVER_VERSION, USERS_FILE_MODE
 from protocol import ConnectionClosed, MessageTooLong, receive_message, send_message
@@ -719,6 +722,26 @@ class ServerTest(unittest.TestCase):
         # Match this client's port: the client from setUp may log its own warning first.
         failures = [line for line in logs.output if f"TLS handshake failed: {HOST}:{port} " in line]
         self.assertEqual(len(failures), 1, logs.output)
+
+    def test_second_client_times_out_while_the_server_is_busy(self):
+        # The client from setUp holds the only slot. The second one's TCP connect succeeds
+        # from the backlog, but its handshake waits for an accept() that doesn't come.
+        port = self.server.address[1]
+        output = io.StringIO()
+        with mock.patch("client.PORT", port), mock.patch("client.HANDSHAKE_WAIT_TIMEOUT", 0.2):
+            with contextlib.redirect_stdout(output):
+                started = time.monotonic()
+                second = client.connect(make_client_context(TEST_CERT))
+                waited = time.monotonic() - started
+        self.assertIsNone(second)
+        self.assertIn("No answer from the server within 0.2 s - it may be busy", output.getvalue())
+        self.assertLess(waited, 3, "the handshake limit was not applied")
+        # Once the first client leaves, the server accepts the abandoned connection, fails
+        # its handshake (a warning) and still serves the next client.
+        with self.assertLogs("server", level="WARNING") as logs:
+            self.disconnect()
+            self.assert_server_still_serves()
+        self.assertTrue(any("TLS handshake failed" in line for line in logs.output), logs.output)
 
     def test_client_trusting_other_certificate_rejects_server(self):
         self.disconnect()

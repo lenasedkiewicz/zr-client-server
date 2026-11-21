@@ -47,12 +47,18 @@ finds every `test*.py` in the `tests` folder and runs it.
   `tests.test_protocol tests.test_server.HandleRequestTest`. Handy for running only the fast
   unit tests without the end-to-end class.
 - `-v`: verbose; print each test name with `ok`, `FAIL` or `skipped '<reason>'`.
+- `-k <pattern>`: run only the tests whose full name contains `<pattern>` (or matches it, if
+  it has `*`). Repeat `-k` to select several. In 025 this ran every new client test except
+  the Ctrl+C ones against the old code: there, a mocked `KeyboardInterrupt` escaped and
+  aborted the whole run.
 
 Example: `python -m unittest discover tests`,
 `python -m unittest -v tests.test_server.ServerTest.test_users_file_is_owner_only`,
-`python -m unittest -v tests.test_protocol tests.test_server.HandleRequestTest tests.test_server.VersionTest`
+`python -m unittest -v tests.test_protocol tests.test_server.HandleRequestTest tests.test_server.VersionTest`,
+`python -m unittest -k malformed -k too_long tests.test_client`
 
-*First used in 001; single test and `-v` added in 004; several modules/classes added in 013*
+*First used in 001; single test and `-v` added in 004; several modules/classes added in 013;
+`-k` added in 025*
 
 ### python -c: run a one-line program
 
@@ -417,13 +423,20 @@ does only this.
   Example: `git checkout -b chore/pre-review-skill master` (start from `master` while
   standing on an unmerged fix branch).
 - `-q`: quiet, no "Switched to branch" message.
+- ⚠️ `-- <path>…`: restore the files from the index, which **throws away** their uncommitted
+  changes, with no undo. Safe only for changes you made a moment ago on purpose, or ones
+  stashed first. In 026, after `git stash push -- client.py config.py` and a temporary edit
+  to the old code, `git checkout -q client.py config.py && git stash pop -q` dropped the
+  temporary edit and brought the fix back. The `--` may be left out when no branch has the
+  same name as the file, but with it git never mistakes a path for a branch. Newer git:
+  `git restore <path>`.
 
 Example: `git checkout feature/admin`; `git checkout -b fix/server-survives-bad-client`;
 `git checkout -q master`; `git switch fix/server-limits` (back to batch 5's branch from an
 already-merged one)
 
 *First used in 008; `-b` added in the step 16 plan commit; `-q` added in 020; `git switch`
-first used in 021; start point added with the pre-review skill*
+first used in 021; start point added with the pre-review skill; `-- <path>` added in 026*
 
 ### git merge: join another branch into the current one
 
@@ -608,7 +621,16 @@ Needs git 2.38+. Older versions only know the deprecated `git merge-tree <base> 
 form and fail with `usage:` (exit 129), as here; then just merge and `git merge --abort` if
 needed.
 
-*First used in 008*
+The old form still works as a preview. It prints a diff per file, with `changed in both` for
+files both sides touched and `<<<<<<<` markers where they really conflict. Search it instead
+of reading it:
+`git merge-tree $(git merge-base origin/master fix/server-lifecycle-2) origin/master fix/server-lifecycle-2 | grep -n -B3 -A25 "<<<<<<<"`.
+`$( … )` runs the inner command and puts its output in place, here the base commit's hash.
+PowerShell runs the same `git` line, since `$( … )` works there too.
+"Changed in both" with no markers merged cleanly as text, but still read the result: git
+merges lines, not meaning.
+
+*First used in 008; old form as a preview added in the lifecycle-2 merge*
 
 ### git ls-files: list tracked files
 
@@ -845,11 +867,13 @@ safe for a new scratch file like `"$TEMP/edit.py"`.
 
 - `-A`: show hidden characters: `$` at each line end, `^M` for a Windows `\r`. Useful
   when a text match fails and you suspect line endings or tabs.
+- `-n`: number every line, like the editor's gutter, so you can refer to `client.py:84`.
+  PowerShell: `Get-Content client.py | ForEach-Object { "{0,4}  {1}" -f $_.ReadCount, $_ }`.
 
 PowerShell: `Get-Content <file>`. To append, use `Add-Content -Encoding utf8 <file> <text>`.
 To overwrite, use `Set-Content -Encoding utf8 <file> <text>`.
 
-*First used in 001; `>` added in 002; `-A` added in 003*
+*First used in 001; `>` added in 002; `-A` added in 003; `-n` added in 025*
 
 ### cp: copy files
 
@@ -969,6 +993,8 @@ PowerShell: `Get-Content <file> -TotalCount N` / `-Tail N`. For piped output, us
 - `-v`: invert, i.e. print lines that do **not** match.
 - `-E`: extended regex, so `(a|b)` works without backslashes.
 - `-A N`: also print N lines after each match.
+- `-B N`: also print N lines before each match. `-B3 -A25 "<<<<<<<"` shows a conflict block
+  with some context.
 - `-c`: print only the number of matching lines.
 - `-r`: search every file under a directory (recursive).
 - `-i`: ignore case.
@@ -980,13 +1006,13 @@ Example: `python -m unittest discover tests 2>&1 | grep -E "^(Ran|OK|FAIL|ERROR)
 `2>&1` sends stderr, where unittest prints its summary, into the pipe.
 
 PowerShell: `Select-String -Pattern <p>` (`-NotMatch` for `-v`, `-Context 0,N` for `-A N`,
-`(… | Measure-Object).Count` for `-c`).
+`-Context N,0` for `-B N`, `(… | Measure-Object).Count` for `-c`).
 
 In a basic (non `-E`) pattern, `\|` means "or" and `\b` is a word boundary:
 `grep -n "\bENCODING\b\|\bjson\b" server.py` finds `json` but not `json_file`. Useful to check
 whether an import is still used.
 
-*First used in 001; `-c` added in 003; `-r`, `-i` added in 006 (`grep -rniE "todo|next" README.md docs`); `-a` added in 009; `\|`, `\b` added in 010*
+*First used in 001; `-c` added in 003; `-r`, `-i` added in 006 (`grep -rniE "todo|next" README.md docs`); `-a` added in 009; `\|`, `\b` added in 010; `-B N` added in the lifecycle-2 merge*
 
 ### tr: translate characters
 
@@ -1122,6 +1148,15 @@ undo it.
 - `;` joins several commands: `sed -i 's/^id: 001$/id: 007/; s/Step 8/Step 14/g' <file>`.
 - `/pattern/d`: delete every line that matches. Anchor it with `^` and `$` so it can't hit
   other lines. Example: `sed -i '/^BUFFER_SIZE = 1024$/d' config.py`.
+- `-e <cmd>`: one command per `-e`, the same as joining them with `;`. Example, dropping the
+  three conflict-marker lines and keeping both sides:
+  `sed -i -e '/^<<<<<<< HEAD$/d' -e '/^=======$/d' -e '/^>>>>>>> origin\/master$/d' docs/dev-journal/README.md`
+  (`\/` is a `/` inside a `/…/` pattern). Then `grep -c` for the markers to check that none
+  are left.
+- ⚠️ In GNU sed's basic regex, `\|` means "or", so `s/a\|b/…/` matches `a` *or* `b`. It is not
+  a literal `|`, which needs no backslash. Mixing them up can match an empty string and
+  scramble the line, so check the result with `sed -n '<N>p'` and fix it with `git diff`.
+  For a long literal line, an exact edit in an editor is safer than a regex.
 
 PowerShell: `(Get-Content f) -replace 'old','new' | Set-Content -Encoding utf8 f`. For `d`:
 `(Get-Content f) | Where-Object { $_ -notmatch '^BUFFER_SIZE' } | Set-Content -Encoding utf8 f`.
@@ -1133,7 +1168,7 @@ leaves files alone. Example: `git show HEAD:server.py | sed 's/old/new/' > serve
 afterwards. PowerShell: `(git show HEAD:server.py) -replace 'old','new' | Set-Content
 -Encoding utf8 server.py`.
 
-*First used in 001; filter form added in 005; `g` and `;` added in 008; `/pattern/d` added in 017*
+*First used in 001; filter form added in 005; `g` and `;` added in 008; `/pattern/d` added in 017; `-e` added in the lifecycle-2 merge*
 
 ### heredoc: multi-line input to a command
 
