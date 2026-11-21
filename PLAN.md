@@ -37,6 +37,10 @@ zr-client-server/
 ├── .github/workflows/tests.yml  # CI: tests on Linux + Windows (step 17)
 ├── tests/
 │   ├── certs/           # test-only TLS certificates (step 10)
+│   ├── test_admin_setup.py
+│   ├── test_client.py   # client errors and timeouts, with mocks (step 16, batch 7)
+│   ├── test_protocol.py # framing, without sockets (step 16, task 2.2)
+│   ├── test_run.py      # launcher clean-up, with mocks (step 16, batch 8)
 │   └── test_server.py   # unittest (stdlib) end-to-end tests
 ├── PLAN.md
 ├── README.md
@@ -158,12 +162,20 @@ same on every OS, unlike separate `.bat` / `.sh` scripts.
   If the user leaves the client in another way (Ctrl+C / EOF), the launcher leaves the
   server running and prints how to stop it. Only a server started in the background is
   stopped by the launcher, because it has no window of its own.
+  - *(step 16, task 8.1)* That background server is stopped on **every** way out of
+    `main()`: a `try` that starts before the server does, with `stop_background_server` in
+    its `finally`. This covers a normal end, the start-up timeout's `sys.exit(1)`, and Ctrl+C
+    while waiting for start-up, which prints "Start-up cancelled" instead of a traceback.
+    Stopping escalates: `terminate()`, then `wait(timeout=STOP_TIMEOUT)` (5 s), then
+    `kill()` + `wait()`. A server in a window or one already running is never touched,
+    and is not probed again.
 - Use `sys.executable` and paths relative to `run.py`, so it works from any working
   directory and inside a virtualenv.
 - README: add a "Quick start" section with `python run.py`; keep the two-terminal
   instructions as the manual alternative.
-- Tests: none automated (opening windows can't be tested reliably); check by hand on
-  Windows (see Verification).
+- Tests: opening windows can't be tested reliably, so check that by hand on Windows (see
+  Verification). The rest is tested in `tests/test_run.py` with `unittest.mock` (step 16,
+  batch 8): no real processes, and every step `main()` takes is a mock.
 
 ## Step 8 — user accounts: register
 Lets a user create an account with a password, as groundwork for login (step 9).

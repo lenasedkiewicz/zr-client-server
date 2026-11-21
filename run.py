@@ -17,6 +17,7 @@ SERVER_SCRIPT = os.path.join(BASE_DIR, "server.py")
 CLIENT_SCRIPT = os.path.join(BASE_DIR, "client.py")
 SERVER_LOG = os.path.join(BASE_DIR, "server.log")
 STARTUP_TIMEOUT = 5.0
+STOP_TIMEOUT = 5.0
 POLL_INTERVAL = 0.1
 
 
@@ -86,59 +87,95 @@ def start_server_in_window():
 
 def start_server_in_background():
     """Start the server in this terminal's background, logging to server.log."""
-    log = open(SERVER_LOG, "w", encoding="utf-8")
-    process = subprocess.Popen(
-        server_command(), cwd=BASE_DIR, stdout=log, stderr=subprocess.STDOUT
-    )
-    log.close()  # The child process keeps its own handle.
+    # The child gets its own copy of the handle, so ours can close as soon as Popen returns,
+    # and the with block closes it even if Popen raises.
+    with open(SERVER_LOG, "w", encoding="utf-8") as log:
+        return subprocess.Popen(
+            server_command(), cwd=BASE_DIR, stdout=log, stderr=subprocess.STDOUT
+        )
+
+
+def stop_background_server(process):
+    """Stop the server this launcher started: ask, wait with a limit, then force.
+
+    ``terminate()`` sends SIGTERM on POSIX (on Windows it already kills at once);
+    ``kill()`` (SIGKILL) is the last resort for a process that doesn't exit in time.
+    A server that already exited (the client sent ``stop``) is left alone.
+    """
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=STOP_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()  # collect the exit status, so no zombie stays behind on POSIX
+    print("Background server stopped")
+
+
+def start_server():
+    """Start a server; return its process if it runs in the background, else ``None``."""
+    # Ask here, in the user's terminal: a prompt in the new server window would
+    # outlast the startup timeout below.
+    try:
+        ensure_admin(UserStore(os.path.join(BASE_DIR, USERS_FILE)))
+    except RuntimeError as error:
+        print(error)
+        sys.exit(1)
+    except (KeyboardInterrupt, EOFError):
+        print("\nAdmin setup cancelled - server not started")
+        sys.exit(1)
+    try:
+        opened_window = start_server_in_window()
+    except OSError as error:
+        print(f"Could not open a terminal window ({error})")
+        opened_window = False
+    if opened_window:
+        print("Server started in a new terminal window")
+        return None
+    process = start_server_in_background()
+    print(f"Server started in the background (log: {SERVER_LOG})")
     return process
 
 
-def main():
-    background_server = None
+def wait_until_started(background_server):
+    """Wait for the new server to accept connections; exit with code 1 if it doesn't."""
+    try:
+        started = wait_for_server()
+    except KeyboardInterrupt:
+        print("\nStart-up cancelled")
+        sys.exit(1)
+    if not started:
+        print(f"Server did not start on {HOST}:{PORT} within {STARTUP_TIMEOUT:.0f} s")
+        if background_server is not None:
+            print(f"See {SERVER_LOG} for details")
+        sys.exit(1)
 
-    if server_is_running():
-        print(f"Server already running on {HOST}:{PORT} - reusing it")
-    else:
-        # Ask here, in the user's terminal: a prompt in the new server window would
-        # outlast the startup timeout below.
-        try:
-            ensure_admin(UserStore(os.path.join(BASE_DIR, USERS_FILE)))
-        except RuntimeError as error:
-            print(error)
-            sys.exit(1)
-        except (KeyboardInterrupt, EOFError):
-            print("\nAdmin setup cancelled - server not started")
-            sys.exit(1)
-        try:
-            opened_window = start_server_in_window()
-        except OSError as error:
-            print(f"Could not open a terminal window ({error})")
-            opened_window = False
-        if opened_window:
-            print("Server started in a new terminal window")
-        else:
-            background_server = start_server_in_background()
-            print(f"Server started in the background (log: {SERVER_LOG})")
 
-        if not wait_for_server():
-            print(f"Server did not start on {HOST}:{PORT} within {STARTUP_TIMEOUT:.0f} s")
-            if background_server is not None:
-                background_server.terminate()
-                print(f"See {SERVER_LOG} for details")
-            sys.exit(1)
-
+def run_client():
     try:
         subprocess.run([sys.executable, CLIENT_SCRIPT], cwd=BASE_DIR)
     except KeyboardInterrupt:
         pass  # The client handles Ctrl+C itself; just don't print a traceback here.
 
-    if background_server is not None:
-        if background_server.poll() is None:
-            background_server.terminate()
-            background_server.wait()
-            print("Background server stopped")
-    elif not wait_for_server_exit():
+
+def main():
+    background_server = None
+    # The try starts before the server does: a background server is ours to stop on every
+    # way out (a normal end, sys.exit() and Ctrl+C alike). A server in a window, or one that
+    # was already running, belongs to the user and is never touched.
+    try:
+        if server_is_running():
+            print(f"Server already running on {HOST}:{PORT} - reusing it")
+        else:
+            background_server = start_server()
+            wait_until_started(background_server)
+        run_client()
+    finally:
+        if background_server is not None:
+            stop_background_server(background_server)
+
+    if background_server is None and not wait_for_server_exit():
         print("Server is still running - type 'stop' in a client or press Ctrl+C "
               "in the server window to stop it")
 

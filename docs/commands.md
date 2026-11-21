@@ -419,7 +419,13 @@ fetch to see `origin/feature/admin`.
 
 Example: `git branch -d feature/admin test/test-foundations` after their PRs were merged.
 
-*First used in 007; `-a` added in 008; `-vv`, `-d` added in 018*
+`[gone]` in `git branch -vv` (after `git fetch --prune`) means the remote branch was
+deleted, usually because its PR was merged. Those local branches are the ones to clean up.
+`-D` example (028): `git branch -D fix/server-lifecycle`. Its one commit was an older copy
+of a change merged under another hash, so `-d` refused. That was checked first with
+[diff <(…) <(…)](#diff---compare-two-commands-output).
+
+*First used in 007; `-a` added in 008; `-vv`, `-d` added in 018; `[gone]`, `-D` added in 028*
 
 ### git fetch: download new commits from the remote
 
@@ -643,6 +649,24 @@ Example: `gh pr list --head fix/server-survives-bad-client`;
 
 *First used in 011; `--limit`, `--json`, `--jq` added in 018*
 
+### gh run list: list GitHub Actions runs
+
+`gh run list [--branch <b>] [--limit N] [--json <fields> --jq <expr>]`. GitHub CLI: shows
+recent CI runs with their status (`completed`, `in_progress`), conclusion (`success`,
+`failure`), event (`push`, `pull_request`) and commit.
+
+- `--branch <b>`: only runs for that branch.
+- `--json` / `--jq`: pick fields and format them, as for
+  [gh pr list](#gh-pr-list-list-pull-requests).
+
+Example (028: did CI pass on the merged PR #11?): `gh run list --branch master --limit 3`;
+`gh run list --limit 3 --json headSha,status,conclusion,event,headBranch -q '.[] | "\(.headBranch) \(.event) \(.headSha[0:7]) \(.status) \(.conclusion)"'`.
+`-q` is short for `--jq`.
+
+PowerShell: the same command. Quote the `--jq` expression with single quotes there too.
+
+*First used in 028*
+
 ### git ls-tree: list files in a commit
 
 `git ls-tree [--name-only] <rev> [<path>]`. Lists the files and folders stored in a commit or
@@ -680,9 +704,20 @@ files are left out, so it shows what a reviewer will actually get.
 
 Example: `git ls-files`; `git ls-files tests`
 
+- `-z`: end each name with a NUL byte instead of a newline, so a name with spaces or a
+  newline can't be split in two. Pair it with [xargs -0](#xargs-turn-input-lines-into-arguments).
+
+Example (028: a scratch copy of the repo with only tracked files, plus the working tree's
+uncommitted `run.py`):
+`git ls-files -z | xargs -0 tar -cf - | tar -x -C "$S/e2e"`.
+`tar -c` creates an archive, `-f -` writes it to stdout, and the second `tar -x -C` unpacks
+it in the copy. Unlike [git archive](#git-archive-export-a-commits-files), this copies the
+files as they are on disk, uncommitted changes included. ⚠️ In PowerShell 5.1 don't pipe
+binary data between programs (see git archive); run it in Git Bash.
+
 PowerShell: the same command.
 
-*First used with the pre-review skill*
+*First used with the pre-review skill; `-z` added in 028*
 
 ### git status: show the working tree state
 
@@ -1104,6 +1139,39 @@ Example: `grep -n "TCP on" README.md | cat -A | cut -c1-140`
 PowerShell: `… | ForEach-Object { $_.Substring(0, [Math]::Min(140, $_.Length)) }`.
 
 *First used in 003*
+
+### xargs: turn input lines into arguments
+
+`<list> | xargs [-0] <command>`. Reads names from stdin and runs `<command>` with them as
+arguments, for a command that takes arguments rather than reading stdin (here `tar -c`).
+
+- `-0`: names are separated by NUL bytes, from `git ls-files -z` or `find -print0`, so
+  spaces in a name are safe.
+
+Example: `git ls-files -z | xargs -0 tar -cf -` (see
+[git ls-files](#git-ls-files-list-tracked-files)).
+
+PowerShell: pass the list as an argument instead: `tar -cf $S\copy.tar (git ls-files)`.
+
+*First used in 028*
+
+### diff <(…) <(…): compare two commands' output
+
+`diff <(cmd1) <(cmd2)`. Bash *process substitution*: each `<(…)` runs a command and gives
+its output to `diff` as if it were a file. `diff` prints the lines that differ and exits 0
+when there are none, so `&& echo yes || echo NO` turns it into a yes/no check.
+
+Example (028, before force-deleting a stale branch): is the old 6.2 commit the same change
+as the merged one?
+`diff <(git diff e872f44^ e872f44 -- server.py tests/test_server.py) <(git diff 65d08cd^ 65d08cd -- server.py tests/test_server.py) >/dev/null && echo yes || echo NO`.
+`<commit>^` is that commit's parent, so `git diff c^ c` is the commit's own change.
+`git range-diff` does the same for whole series of commits.
+
+PowerShell has no process substitution: `Compare-Object (git diff e872f44^ e872f44) (git diff 65d08cd^ 65d08cd)`
+prints nothing when they match. (`^` needs no quoting in PowerShell; it is special only in
+cmd.exe.)
+
+*First used in 028*
 
 ### sort / uniq -c: count repeated lines
 

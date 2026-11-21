@@ -42,7 +42,8 @@ The launcher:
 - waits until the server accepts connections, then runs the client in the current terminal,
 - reuses a server that is already running instead of starting a second one,
 - falls back to running the server in the background (log in `server.log`) when no terminal
-  window can be opened, e.g. over SSH; such a server is stopped when the client exits.
+  window can be opened, e.g. over SSH. The launcher stops such a server whenever it ends:
+  when the client exits, after a start-up timeout, or on Ctrl+C while it waits for start-up.
 
 Typing `stop` ends both the server and the client. Leaving the client with Ctrl+C / Ctrl+D
 keeps a windowed server running.
@@ -202,6 +203,9 @@ zr-client-server/
 ├── tests/
 │   ├── certs/         # test-only certificates (never use them elsewhere)
 │   ├── test_admin_setup.py
+│   ├── test_client.py
+│   ├── test_protocol.py
+│   ├── test_run.py    # the launcher, with mocks (no real windows)
 │   └── test_server.py
 ├── docs/
 │   ├── dev-journal/   # one learning entry per commit
