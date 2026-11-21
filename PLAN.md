@@ -72,8 +72,18 @@ zr-client-server/
   `time.monotonic` (step 16, task 6.1): uptime is a duration, so a system clock moved back
   must not make it negative. The clock is a `Server` argument, so tests use a fake one
   instead of sleeping. A start *date* for display would come from the wall clock.
-- `socket.socket(AF_INET, SOCK_STREAM)`, `SO_REUSEADDR`, `bind`, `listen`, accept loop
+- `socket.socket(AF_INET, SOCK_STREAM)`, `bind`, `listen`, accept loop
   (one client at a time — simple and sufficient for the spec).
+- Before `bind` (step 16, task 6.3): `SO_EXCLUSIVEADDRUSE` where it exists (Windows), else
+  `SO_REUSEADDR`. On POSIX, `SO_REUSEADDR` only allows a quick restart past `TIME_WAIT`. On
+  Windows it would let a second server bind the port while ours listens, and take some of its
+  connections. This is the same split as `socket.create_server`.
+- **Start-up errors** (step 16, follow-up to task 6.3, found by `pre-review`): `main()` turns a
+  failed `bind()` into one message and exit code 1, never a traceback. A taken port
+  (`errno.EADDRINUSE`, which is 10048 on Windows) says to stop the other program or change
+  `PORT`. Any other `OSError` prints the address and the error. `FileNotFoundError` (missing
+  certificate) is an `OSError` too, so its clause comes first. `logging.basicConfig` stays
+  under `__main__`, so tests can call `main()`.
 - Command dispatch via a dict `{name: (handler, description)}` — `help` is generated from
   this same dict, so it always lists exactly the implemented commands.
 - Handlers:
@@ -95,6 +105,11 @@ zr-client-server/
     needs a deadline per message, i.e. our own `recv` loop instead of `readline()`. Recorded,
     not fixed: one client at a time on localhost, and the plan keeps the concurrency model.
 - `Ctrl+C` handled gracefully (close socket).
+- **Owns its socket** (step 16, task 6.2): `Server.close()` (safe to call twice) and
+  `with Server() as server:`, like `socketserver`'s `server_close()`. A failed `bind()` in
+  `__init__` closes the half-built socket before re-raising; in `serve_forever` everything
+  from `listen()` on is inside the `try` whose `finally` calls `close()`. Callers (`__main__`,
+  the tests) never touch `server.sock` to clean up.
 
 ## Step 5 — client (`client.py`)
 - Connects to the server, input loop: `> ` prompt, sends the typed command, pretty-prints the

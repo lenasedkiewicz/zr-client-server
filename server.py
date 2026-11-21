@@ -7,6 +7,7 @@ Every connection is wrapped in TLS; the server refuses to start without a certif
 """
 
 import datetime
+import errno
 import logging
 import socket
 import ssl
@@ -78,10 +79,23 @@ class Server:
         # Set once listen() has run, so callers (the tests) know they can connect.
         self.listening = threading.Event()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.bind((host, port))
-        # Actual address - differs from the requested one when port=0 (used by tests).
-        self.address = self.sock.getsockname()
+        try:
+            # Same name, different meaning. On POSIX, SO_REUSEADDR only allows a quick restart
+            # while old connections sit in TIME_WAIT; a second listener is still refused. On
+            # Windows it lets another socket bind this port while we listen, and connections
+            # reach either one, so there SO_EXCLUSIVEADDRUSE (Windows-only) forbids sharing.
+            # socket.create_server makes the same split.
+            if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            else:
+                self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.sock.bind((host, port))
+            # Actual address - differs from the requested one when port=0 (used by tests).
+            self.address = self.sock.getsockname()
+        except BaseException:
+            # The caller never gets a Server to close, so the half-built socket is ours to close.
+            self.sock.close()
+            raise
         # name -> (handler, description, requires_login)
         self.commands = {
             "register": (self.cmd_register, "Creates a user account: register <username>", False),
@@ -280,15 +294,32 @@ class Server:
         tls_conn.settimeout(self.idle_timeout)
         return tls_conn
 
+    def close(self):
+        """Close the listening socket and free the port; safe to call more than once.
+
+        Like ``socketserver``'s ``server_close()``. ``serve_forever`` calls it when it
+        ends, so only a server that never served needs it called by hand (or ``with``).
+        """
+        self.listening.clear()
+        self.sock.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()  # returns None, so an exception from the with block still propagates
+
     def serve_forever(self):
         self.running = True
-        self.sock.listen()
-        self.listening.set()
-        # Wake up periodically so Ctrl+C works on Windows, where a blocking accept()
-        # is not interrupted by KeyboardInterrupt. Accepted sockets stay blocking.
-        self.sock.settimeout(1.0)
-        logger.info("Server listening on %s:%s", self.address[0], self.address[1])
+        # Everything after the socket exists is inside the try: a failing listen() or
+        # settimeout() must still reach the finally that closes it.
         try:
+            self.sock.listen()
+            self.listening.set()
+            # Wake up periodically so Ctrl+C works on Windows, where a blocking accept()
+            # is not interrupted by KeyboardInterrupt. Accepted sockets stay blocking.
+            self.sock.settimeout(1.0)
+            logger.info("Server listening on %s:%s", self.address[0], self.address[1])
             while self.running:
                 try:
                     conn, addr = self.sock.accept()
@@ -303,30 +334,45 @@ class Server:
         except KeyboardInterrupt:
             logger.info("Interrupted")
         finally:
-            self.listening.clear()
-            self.sock.close()
+            self.close()
             logger.info("Server stopped")
 
 
-if __name__ == "__main__":
-    # Only the entry point configures logging; the handlers are the application's choice.
-    logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
+def main():
+    """Start the server from the command line; exit with code 1 if it can't start."""
     try:
-        server = Server()
+        server = Server(host=HOST, port=PORT)
     except FileNotFoundError:
         # Fail closed: never fall back to plain text.
         print(f"TLS certificate or key not found ({TLS_CERT_FILE}, {TLS_KEY_FILE}).")
         print("Create them once (Git Bash) in the project folder:")
         print(f"  {OPENSSL_COMMAND}")
         sys.exit(1)
-    try:
-        ensure_admin(server.users)
-    except RuntimeError as error:  # no terminal to ask in (e.g. started in the background)
-        server.sock.close()
-        print(error)
+    except OSError as error:
+        # bind() failed. Must come after FileNotFoundError, which is an OSError too. Compare
+        # the error code, not the text: the OS message is localised (and 10048 on Windows is
+        # errno.EADDRINUSE there, so one check covers both systems).
+        if error.errno == errno.EADDRINUSE:
+            print(f"Could not listen on {HOST}:{PORT}: the port is already in use.")
+            print("Another server or program may be running. Stop it, or change PORT in config.py.")
+        else:  # e.g. WinError 10013 (a port Windows reserves) or a HOST this machine doesn't have
+            print(f"Could not listen on {HOST}:{PORT} ({error}).")
         sys.exit(1)
-    except (KeyboardInterrupt, EOFError):
-        server.sock.close()
-        print("\nAdmin setup cancelled - server not started")
-        sys.exit(1)
-    server.serve_forever()
+    # The with block closes the socket on every way out, sys.exit() included.
+    with server:
+        try:
+            ensure_admin(server.users)
+        except RuntimeError as error:  # no terminal to ask in (e.g. started in the background)
+            print(error)
+            sys.exit(1)
+        except (KeyboardInterrupt, EOFError):
+            print("\nAdmin setup cancelled - server not started")
+            sys.exit(1)
+        server.serve_forever()
+
+
+if __name__ == "__main__":
+    # Only the entry point configures logging; the handlers are the application's choice.
+    # Outside main(), so tests that call main() don't add handlers to the root logger.
+    logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
+    main()

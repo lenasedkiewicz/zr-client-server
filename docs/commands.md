@@ -138,6 +138,21 @@ each malformed input raises, and whether a text stream survives a decode error)
 
 *First used in 010*
 
+### PYTHONPATH: extra folders to import from
+
+`PYTHONPATH=<dir> python <script>`. Adds `<dir>` to the front of `sys.path` for that one
+run. Python adds a script's *own* folder, not the current one, so a probe in the scratchpad
+can't `import config` from the repo without it. `.` means the current folder.
+
+Example: `PYTHONPATH=. python "$S/hold_port.py"`: a scratchpad script that imports `config`
+from the repo, holds the server's port, and runs `python server.py` to see what it prints.
+
+PowerShell: `$env:PYTHONPATH = '.'; python $S\hold_port.py`. This stays set for the rest of
+the session, so clear it afterwards: `Remove-Item Env:PYTHONPATH`. Don't combine it with
+[python -I](#python--i-isolated-mode), which ignores `PYTHONPATH`.
+
+*First used in 027*
+
 ### py: the Windows Python launcher
 
 `py [-<version>] <python arguments>`. Installed with Python on Windows. It starts a chosen
@@ -314,12 +329,41 @@ PowerShell: the same, but `>` writes UTF-16 in Windows PowerShell 5.1; use
 
 - `--stat <rev>`: show a commit's message and the list of files it changed, with
   added/removed line counts, instead of the full diff. Example: `git show --stat HEAD~1`
+- `--format='<fmt>'`: the header line(s), with the same placeholders as
+  [git log](#git-log-list-commits). Example: `git show --stat --format='%h %s' e872f44`
+  (024: one line, then the changed files).
   (what the planning commit touched). `HEAD~1` is the commit before `HEAD`.
 - `<rev> -- <path>`: show that commit's message and its diff, but only for `<path>`.
   Example: `git show ab438a5 -- README.md` (what the previous task added to the README, to
   match its wording).
 
-*First used in 004; `--stat` added in 010; `<rev> -- <path>` added in 021*
+*First used in 004; `--stat` added in 010; `<rev> -- <path>` added in 021; `--format` added in 024*
+
+### git archive: export a commit's files
+
+`git archive <rev> | tar -x -C <dir>`. Writes the files of a commit as a tar archive to
+stdout, and `tar -x -C <dir>` unpacks them into `<dir>`. The result is a plain copy with no
+`.git` and no untracked files, so you can change and test it without touching your
+working tree.
+
+- `tar -x`: extract. `-C <dir>`: change to `<dir>` first (it must exist).
+- Files that git ignores (`server.crt`, `users.json`) are not in the copy.
+
+Example (the "does the new test fail without the fix?" check in 027, on a copy):
+`git archive HEAD | tar -x -C "$S/c1"`, then
+`git show 65d08cd:server.py > "$S/c1/server.py"` and run the tests in `$S/c1`. `>` is
+safe here because it writes into the copy, not the repo.
+
+PowerShell: don't pipe it. Windows PowerShell 5.1 turns output piped between two programs
+into text, which corrupts a binary stream like a tar archive (PowerShell 7.4+ passes the
+bytes through). Write a file instead: `git archive -o $S\c1.tar HEAD; tar -x -f $S\c1.tar -C $S\c1`.
+`tar` ships with Windows 10+, and `-o` (output file) and `tar -f` (archive file) replace
+the pipe.
+⚠️ Clean up the copy afterwards (`rm -rf "$S/c1"`, PowerShell
+`Remove-Item -Recurse -Force $S\c1`), and check the path first: it's the scratchpad, not the
+repo.
+
+*First used in 027*
 
 ### git grep: search tracked files
 
@@ -385,11 +429,12 @@ remote-tracking branches (`origin/master`, ...) without touching your own branch
 - `--all`: fetch every configured remote, not just `origin`.
 - `--prune`: delete remote-tracking branches whose branch was deleted on the remote.
 
-- `--quiet`: no progress output.
+- `--quiet` (short: `-q`): no progress output.
 
-Example: `git fetch --all --prune` before merging, so `origin/master` is current.
+Example: `git fetch --all --prune` before merging, so `origin/master` is current;
+`git fetch -q` after a PR merge.
 
-*First used in 008; `--quiet` added in 015*
+*First used in 008; `--quiet` added in 015; `-q` added in 024*
 
 ### git pull: fetch and update the current branch
 
@@ -487,6 +532,25 @@ so a commit that reached `master` by a squash or cherry-pick shows as `-`.
 Example: `git cherry master feature/admin | grep -c '^+'` → `0` (nothing left to merge)
 
 *First used in 018*
+
+### git cherry-pick: copy a commit onto the current branch
+
+`git cherry-pick <commit>…`. Applies the changes of each given commit on top of the current
+branch as a new commit, with the same message and author but a new hash. The original
+commit stays where it was.
+
+Example: `git cherry-pick e872f44` (task 6.2 was committed after the batch 6 branch was
+pushed for its PR, so it never reached `master`; it was copied onto a new branch started
+from `master`).
+
+If it conflicts, git stops: fix the files, `git add` them, then `git cherry-pick --continue`,
+or `git cherry-pick --abort` to go back. Use it for a commit or two that are on the wrong
+branch. To move a whole branch, rebase or merge instead. Afterwards `git cherry` shows the
+original as `-`, already upstream.
+
+PowerShell: the same command.
+
+*First used in 024*
 
 ### git mv: rename a tracked file
 
@@ -598,7 +662,16 @@ Needs git 2.38+. Older versions only know the deprecated `git merge-tree <base> 
 form and fail with `usage:` (exit 129), as here; then just merge and `git merge --abort` if
 needed.
 
-*First used in 008*
+The old form still works as a preview. It prints a diff per file, with `changed in both` for
+files both sides touched and `<<<<<<<` markers where they really conflict. Search it instead
+of reading it:
+`git merge-tree $(git merge-base origin/master fix/server-lifecycle-2) origin/master fix/server-lifecycle-2 | grep -n -B3 -A25 "<<<<<<<"`.
+`$( … )` runs the inner command and puts its output in place, here the base commit's hash.
+PowerShell runs the same `git` line, since `$( … )` works there too.
+"Changed in both" with no markers merged cleanly as text, but still read the result: git
+merges lines, not meaning.
+
+*First used in 008; old form as a preview added in the lifecycle-2 merge*
 
 ### git ls-files: list tracked files
 
@@ -961,6 +1034,8 @@ PowerShell: `Get-Content <file> -TotalCount N` / `-Tail N`. For piped output, us
 - `-v`: invert, i.e. print lines that do **not** match.
 - `-E`: extended regex, so `(a|b)` works without backslashes.
 - `-A N`: also print N lines after each match.
+- `-B N`: also print N lines before each match. `-B3 -A25 "<<<<<<<"` shows a conflict block
+  with some context.
 - `-c`: print only the number of matching lines.
 - `-r`: search every file under a directory (recursive).
 - `-i`: ignore case.
@@ -972,13 +1047,13 @@ Example: `python -m unittest discover tests 2>&1 | grep -E "^(Ran|OK|FAIL|ERROR)
 `2>&1` sends stderr, where unittest prints its summary, into the pipe.
 
 PowerShell: `Select-String -Pattern <p>` (`-NotMatch` for `-v`, `-Context 0,N` for `-A N`,
-`(… | Measure-Object).Count` for `-c`).
+`-Context N,0` for `-B N`, `(… | Measure-Object).Count` for `-c`).
 
 In a basic (non `-E`) pattern, `\|` means "or" and `\b` is a word boundary:
 `grep -n "\bENCODING\b\|\bjson\b" server.py` finds `json` but not `json_file`. Useful to check
 whether an import is still used.
 
-*First used in 001; `-c` added in 003; `-r`, `-i` added in 006 (`grep -rniE "todo|next" README.md docs`); `-a` added in 009; `\|`, `\b` added in 010*
+*First used in 001; `-c` added in 003; `-r`, `-i` added in 006 (`grep -rniE "todo|next" README.md docs`); `-a` added in 009; `\|`, `\b` added in 010; `-B N` added in the lifecycle-2 merge*
 
 ### tr: translate characters
 
@@ -1114,6 +1189,15 @@ undo it.
 - `;` joins several commands: `sed -i 's/^id: 001$/id: 007/; s/Step 8/Step 14/g' <file>`.
 - `/pattern/d`: delete every line that matches. Anchor it with `^` and `$` so it can't hit
   other lines. Example: `sed -i '/^BUFFER_SIZE = 1024$/d' config.py`.
+- `-e <cmd>`: one command per `-e`, the same as joining them with `;`. Example, dropping the
+  three conflict-marker lines and keeping both sides:
+  `sed -i -e '/^<<<<<<< HEAD$/d' -e '/^=======$/d' -e '/^>>>>>>> origin\/master$/d' docs/dev-journal/README.md`
+  (`\/` is a `/` inside a `/…/` pattern). Then `grep -c` for the markers to check that none
+  are left.
+- ⚠️ In GNU sed's basic regex, `\|` means "or", so `s/a\|b/…/` matches `a` *or* `b`. It is not
+  a literal `|`, which needs no backslash. Mixing them up can match an empty string and
+  scramble the line, so check the result with `sed -n '<N>p'` and fix it with `git diff`.
+  For a long literal line, an exact edit in an editor is safer than a regex.
 
 PowerShell: `(Get-Content f) -replace 'old','new' | Set-Content -Encoding utf8 f`. For `d`:
 `(Get-Content f) | Where-Object { $_ -notmatch '^BUFFER_SIZE' } | Set-Content -Encoding utf8 f`.
@@ -1125,7 +1209,7 @@ leaves files alone. Example: `git show HEAD:server.py | sed 's/old/new/' > serve
 afterwards. PowerShell: `(git show HEAD:server.py) -replace 'old','new' | Set-Content
 -Encoding utf8 server.py`.
 
-*First used in 001; filter form added in 005; `g` and `;` added in 008; `/pattern/d` added in 017*
+*First used in 001; filter form added in 005; `g` and `;` added in 008; `/pattern/d` added in 017; `-e` added in the lifecycle-2 merge*
 
 ### heredoc: multi-line input to a command
 
