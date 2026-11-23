@@ -70,6 +70,18 @@ one line saying why and exits, without a traceback.
 
 Then type commands at the `>` prompt.
 
+### Exit codes
+
+The client's exit code tells a script (or `run.py`) how the session ended:
+
+| Code | Meaning |
+|------|---------|
+| 0 | the session ended normally: end of input (Ctrl+D, or Ctrl+Z then Enter on Windows), Ctrl+C at the prompt, or `stop` |
+| 1 | the client failed: no certificate, couldn't connect, lost the connection, or got a bad reply or none in time |
+| 130 | interrupted with Ctrl+C while connecting or waiting for a reply (the shell convention 128 + SIGINT) |
+
+Check it with `echo $?` (Bash) or `$LASTEXITCODE` (PowerShell) right after the client exits.
+
 ## First use
 
 On the first start, when `users.json` has no admin yet, the server (or `python run.py`,

@@ -46,6 +46,11 @@ HANDSHAKE_WAIT_TIMEOUT = 10.0
 # Each send or reply; the slowest command is login/register (PBKDF2, about 0.5 s).
 REPLY_TIMEOUT = 10.0
 
+# Client exit codes, for whatever started it (a shell, a script, run.py; README "Exit codes").
+EXIT_OK = 0  # the session ended normally: end of input, Ctrl+C at the prompt, or `stop`
+EXIT_FAILURE = 1  # it couldn't connect, lost the connection, or got a bad or no reply
+EXIT_INTERRUPTED = 130  # Ctrl+C while connecting or waiting: the shell convention 128 + SIGINT (2)
+
 # Server logging, applied only when server.py runs as a script
 LOG_LEVEL = "INFO"
 LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"

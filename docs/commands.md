@@ -265,6 +265,24 @@ PowerShell 5.1).
 
 *First used in 015*
 
+### netstat -ano: which process uses a port
+
+`netstat -ano`. Lists every TCP and UDP connection and listening port with its state and
+the ID of the process that owns it.
+
+- `-a`: all connections and listening ports. `-n`: numbers, not names, which is faster and
+  exact. `-o`: add the owning process ID (Windows; on Linux use `ss -ltnp`).
+
+Example (029: which process is the test server listening on 65432?):
+`netstat -ano | grep "127.0.0.1:65432" | grep LISTENING | awk '{print $NF}'`. `$NF` is
+awk's last field, the PID. Then check it with
+[tasklist /FI](#tasklist-list-running-processes) before
+[taskkill](#taskkill-stop-a-windows-process).
+
+PowerShell: `(Get-NetTCPConnection -LocalPort 65432 -State Listen).OwningProcess`.
+
+*First used in 029*
+
 ## Git
 
 ### git diff: show unstaged changes
@@ -905,7 +923,29 @@ Git Bash.
 
 Example: `tasklist | grep -i avast`. PowerShell: `Get-Process | Where-Object Name -Match avast`
 
-*First used in 016*
+- `/FI "PID eq <n>"`: only the process with that ID, to check what it is before stopping
+  it. In Git Bash write `//FI`: a single `/FI` looks like a path to Git Bash, which rewrites
+  it ([MSYS_NO_PATHCONV](#msys_no_pathconv-stop-git-bash-rewriting-paths)). PowerShell and
+  cmd take `/FI` as is.
+
+Example (029): `tasklist //FI "PID eq 44316"` → `python.exe 44316 Console …`, the test
+server found with [netstat](#netstat--ano-which-process-uses-a-port).
+
+*First used in 016; `/FI` added in 029*
+
+### taskkill: stop a Windows process
+
+`taskkill /PID <n> [/F]`. Stops the process with that ID. ⚠️ `/F` forces it, like
+`kill -9`: the process gets no chance to clean up. That's safe for a throwaway process you
+started yourself and checked with `tasklist /FI` first; never use it on a PID you haven't
+checked.
+
+Example (029, the test server started in a scratch copy): `taskkill //PID 44316 //F`
+(Git Bash; `//` for the same reason as `tasklist //FI`).
+
+PowerShell: `Stop-Process -Id 44316 -Force`.
+
+*First used in 029*
 
 ### ls: list files
 
@@ -1046,11 +1086,18 @@ end of file.
 PowerShell: `$null | python server.py; "exit=$LASTEXITCODE"` (`$LASTEXITCODE` holds a
 native program's exit code; `$?` is only `True`/`False`).
 
+After a pipe, `$?` is the exit code of the *last* command, so in
+`printf 'stop\n' | python client.py | tail -1` it would be `tail`'s. Bash keeps every
+stage's code in the array `PIPESTATUS`, counting from 0: `${PIPESTATUS[1]}` is
+`python client.py`'s. Read it in the very next command, because the next pipeline
+overwrites it. PowerShell: `$LASTEXITCODE` is the last *native* program's code, here also
+`tail`'s, so run the client without the pipe to see its code.
+
 `2>/dev/null` goes the other way: it throws away the command's error output (stream 2,
 stderr) and keeps normal output. Example: `ls docs/concepts 2>/dev/null` prints nothing
 instead of an error if the folder doesn't exist. PowerShell: `2>$null`.
 
-*First used in 006; `2>/dev/null` added in 021*
+*First used in 006; `2>/dev/null` added in 021; `PIPESTATUS` added in 029*
 
 ### head / tail: first or last lines
 

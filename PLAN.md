@@ -133,6 +133,11 @@ zr-client-server/
   succeeds from the `listen()` backlog, but its TLS handshake waits for `accept()`: on timeout
   the client says the server may be busy. After a reply timeout it disconnects without
   reading again (same `makefile()` caveat as task 5.2). The prompt itself never times out.
+- *(step 16, task 8.2, part 1)* The exit code says how the session ended (`config.py`, README
+  "Exit codes"). `EXIT_OK` (0) when the user ends it or after `stop`, `EXIT_FAILURE` (1) for
+  every failure above, and `EXIT_INTERRUPTED` (130) for Ctrl+C while connecting or waiting.
+  `main()` returns the code and `__main__` calls `sys.exit(main())`, so tests check the code
+  without catching `SystemExit`. This is what lets `run.py` pass on a real code (part 2).
 
 ## Step 6 — tests (`tests/test_server.py`, stdlib `unittest`)
 - Start server in a background thread on a free port; connect a raw socket;
