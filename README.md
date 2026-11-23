@@ -82,6 +82,17 @@ The client's exit code tells a script (or `run.py`) how the session ended:
 
 Check it with `echo $?` (Bash) or `$LASTEXITCODE` (PowerShell) right after the client exits.
 
+`python run.py` exits with the client's code, so the table above holds for it too. Two
+codes are the launcher's own, from before the client starts:
+
+| Code | Meaning |
+|------|---------|
+| 2 | the launcher couldn't start a server: no terminal for the admin prompt, end of input at it, or the server didn't start within 5 s |
+| 130 | Ctrl+C at the admin prompt or while waiting for the server to start |
+
+Ctrl+C while the client runs reaches the client, which handles it. The launcher waits and
+exits with the client's code.
+
 ## First use
 
 On the first start, when `users.json` has no admin yet, the server (or `python run.py`,

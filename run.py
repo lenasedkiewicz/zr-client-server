@@ -9,7 +9,7 @@ import sys
 import time
 
 from admin_setup import ensure_admin
-from config import HOST, PORT, USERS_FILE
+from config import EXIT_INTERRUPTED, EXIT_LAUNCHER_FAILED, HOST, PORT, USERS_FILE
 from users import UserStore
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -119,12 +119,15 @@ def start_server():
     # outlast the startup timeout below.
     try:
         ensure_admin(UserStore(os.path.join(BASE_DIR, USERS_FILE)))
-    except RuntimeError as error:
+    except RuntimeError as error:  # no terminal to ask in
         print(error)
-        sys.exit(1)
-    except (KeyboardInterrupt, EOFError):
+        sys.exit(EXIT_LAUNCHER_FAILED)
+    except EOFError:  # end of input at the prompt: no admin, so no server
         print("\nAdmin setup cancelled - server not started")
-        sys.exit(1)
+        sys.exit(EXIT_LAUNCHER_FAILED)
+    except KeyboardInterrupt:  # the user gave up: the same code as an interrupted client
+        print("\nAdmin setup cancelled - server not started")
+        sys.exit(EXIT_INTERRUPTED)
     try:
         opened_window = start_server_in_window()
     except OSError as error:
@@ -139,27 +142,49 @@ def start_server():
 
 
 def wait_until_started(background_server):
-    """Wait for the new server to accept connections; exit with code 1 if it doesn't."""
+    """Wait for the new server to accept connections; exit if it doesn't.
+
+    Exits with ``EXIT_LAUNCHER_FAILED`` after the start-up timeout, and with
+    ``EXIT_INTERRUPTED`` on Ctrl+C.
+    """
     try:
         started = wait_for_server()
     except KeyboardInterrupt:
         print("\nStart-up cancelled")
-        sys.exit(1)
+        sys.exit(EXIT_INTERRUPTED)
     if not started:
         print(f"Server did not start on {HOST}:{PORT} within {STARTUP_TIMEOUT:.0f} s")
         if background_server is not None:
             print(f"See {SERVER_LOG} for details")
-        sys.exit(1)
+        sys.exit(EXIT_LAUNCHER_FAILED)
+
+
+def shell_exit_code(returncode):
+    """Turn a ``Popen.returncode`` into the code a shell would show.
+
+    On POSIX a child killed by signal N has ``returncode`` -N, but a shell reports 128 + N
+    (and ``sys.exit(-2)`` would show up as 254). Windows never gives a negative code.
+    """
+    return 128 - returncode if returncode < 0 else returncode
 
 
 def run_client():
-    try:
-        subprocess.run([sys.executable, CLIENT_SCRIPT], cwd=BASE_DIR)
-    except KeyboardInterrupt:
-        pass  # The client handles Ctrl+C itself; just don't print a traceback here.
+    """Run the client in this terminal until it exits; return its exit code."""
+    with subprocess.Popen([sys.executable, CLIENT_SCRIPT], cwd=BASE_DIR) as client:
+        while True:
+            try:
+                returncode = client.wait()
+                break
+            except KeyboardInterrupt:
+                # Ctrl+C reaches the client too (same terminal), and it handles it itself:
+                # wait for it to exit. subprocess.run would wait only 0.25 s, then kill it
+                # and lose its exit code (CPython's subprocess.py, bpo-25942).
+                continue
+    return shell_exit_code(returncode)
 
 
 def main():
+    """Start a server if needed, run the client; return the client's exit code."""
     background_server = None
     # The try starts before the server does: a background server is ours to stop on every
     # way out (a normal end, sys.exit() and Ctrl+C alike). A server in a window, or one that
@@ -170,7 +195,7 @@ def main():
         else:
             background_server = start_server()
             wait_until_started(background_server)
-        run_client()
+        exit_code = run_client()
     finally:
         if background_server is not None:
             stop_background_server(background_server)
@@ -178,7 +203,8 @@ def main():
     if background_server is None and not wait_for_server_exit():
         print("Server is still running - type 'stop' in a client or press Ctrl+C "
               "in the server window to stop it")
+    return exit_code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

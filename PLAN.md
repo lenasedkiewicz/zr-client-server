@@ -174,6 +174,14 @@ same on every OS, unlike separate `.bat` / `.sh` scripts.
     Stopping escalates: `terminate()`, then `wait(timeout=STOP_TIMEOUT)` (5 s), then
     `kill()` + `wait()`. A server in a window or one already running is never touched,
     and is not probed again.
+  - *(step 16, task 8.2, part 2)* **Exit code:** `main()` returns the client's exit code, and
+    `__main__` calls `sys.exit(main())`. The client runs under `Popen` + `wait()`, retried on
+    `KeyboardInterrupt`. Ctrl+C reaches the client in the same terminal, and the launcher
+    waits for its code instead of killing it, as `subprocess.run` would. A POSIX
+    `returncode` of -N (killed by signal N) becomes 128 + N. The launcher's own failures
+    exit with `EXIT_LAUNCHER_FAILED` (2): no admin possible, or the start-up timeout. Ctrl+C
+    before the client starts exits with `EXIT_INTERRUPTED` (130). README "Exit codes" has
+    the table.
 - Use `sys.executable` and paths relative to `run.py`, so it works from any working
   directory and inside a virtualenv.
 - README: add a "Quick start" section with `python run.py`; keep the two-terminal

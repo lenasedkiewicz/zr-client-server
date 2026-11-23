@@ -752,7 +752,24 @@ other branch.
 
 Example: `git status --short --ignored`
 
-*First used in 005; `-sb` and merge codes added in 008*
+Gotcha (030): `git status --short users.json` prints nothing whether or not the file
+changed, because `users.json` is git-ignored and git doesn't watch it. Empty output
+doesn't prove "unchanged" there. Look at the file itself (`ls -l`, or read it).
+
+*First used in 005; `-sb` and merge codes added in 008; ignored-file gotcha added in 030*
+
+### git check-ignore: why is a file ignored?
+
+`git check-ignore -v <path>`. Prints the `.gitignore` rule that ignores `<path>`, as
+`file:line:pattern<TAB>path`, and nothing (exit code 1) if the file isn't ignored.
+
+- `-v`: verbose, show the matching rule, not only the path.
+
+Example (030): `git check-ignore -v users.json` → `.gitignore:27:users.json	users.json`.
+
+PowerShell: the same command.
+
+*First used in 030*
 
 ### git stash: put changes aside for a moment
 
@@ -949,13 +966,20 @@ PowerShell: `Stop-Process -Id 44316 -Force`.
 
 ### ls: list files
 
-`ls [-R]`. Lists the files in a directory.
+`ls [-R] [-l] <path>`. Lists the files in a directory, or shows one file.
 
 - `-R`: recurse into subdirectories.
+- `-l`: long format: permissions, owner, size in bytes and modification time.
+- `--time-style=full-iso` (GNU `ls`, as in Git Bash): the full date and time, to the
+  fraction of a second, instead of a short date.
 
-PowerShell: `Get-ChildItem` (`-Recurse` for `-R`).
+Example (030: did a test run write to `users.json`?):
+`ls -l --time-style=full-iso users.json` → size 2 (`{}`), last changed 2026-10-08, so no.
 
-*First used in 001*
+PowerShell: `Get-ChildItem` (`-Recurse` for `-R`). For one file's size and time:
+`Get-Item users.json | Select-Object Length, LastWriteTime`.
+
+*First used in 001; `-l`, `--time-style` added in 030*
 
 ### cd / VAR=value: change directory, set a shell variable
 
