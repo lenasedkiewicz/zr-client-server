@@ -312,8 +312,11 @@ During a merge, `git diff` with no arguments shows only the conflicted files, in
 - `-- . ':!<path>'`: everything except `<path>` (an "exclude pathspec"). Example:
   `git diff 8bc6362 HEAD --stat -- . ':!docs'` (what the review fixes changed, without the
   journal). PowerShell: the same, single quotes work there too.
+- `--quiet`: print nothing, and exit 0 if there are no differences, 1 if there are. Made
+  for scripts: `git diff --quiet -- run.py && echo "run.py clean"` (032: check that a file
+  has no uncommitted changes before mutating it, and that it's back to HEAD afterwards).
 
-*First used in 001; commit and `--` forms added in 007; merge view added in 008; `-U<n>` added in 017; `...` and `':!'` added with the pre-review skill*
+*First used in 001; commit and `--` forms added in 007; merge view added in 008; `-U<n>` added in 017; `...` and `':!'` added with the pre-review skill; `--quiet` added in 032*
 
 ### git add: stage changes
 
@@ -1148,18 +1151,53 @@ PowerShell: `Get-Content <file> -TotalCount N` / `-Tail N`. For piped output, us
 - `-a`: treat binary input as text. Without it, grep prints only `Binary file (standard input)
   matches` when the input has non-UTF-8 bytes (e.g. Windows error messages in a local
   code page).
+- `-o`: print only the part of each line that matched, not the whole line. Combined with
+  `-E`, it cuts one field out of noisy output: `grep -a -oE "^ERROR: [a-z_]+"` keeps
+  `ERROR: test_name` from unittest's longer failure headers (032).
 
 Example: `python -m unittest discover tests 2>&1 | grep -E "^(Ran|OK|FAIL|ERROR)"`.
 `2>&1` sends stderr, where unittest prints its summary, into the pipe.
 
 PowerShell: `Select-String -Pattern <p>` (`-NotMatch` for `-v`, `-Context 0,N` for `-A N`,
-`-Context N,0` for `-B N`, `(… | Measure-Object).Count` for `-c`).
+`-Context N,0` for `-B N`, `(… | Measure-Object).Count` for `-c`, and
+`(… ).Matches.Value` for `-o`).
 
 In a basic (non `-E`) pattern, `\|` means "or" and `\b` is a word boundary:
 `grep -n "\bENCODING\b\|\bjson\b" server.py` finds `json` but not `json_file`. Useful to check
 whether an import is still used.
 
-*First used in 001; `-c` added in 003; `-r`, `-i` added in 006 (`grep -rniE "todo|next" README.md docs`); `-a` added in 009; `\|`, `\b` added in 010; `-B N` added in the lifecycle-2 merge*
+*First used in 001; `-c` added in 003; `-r`, `-i` added in 006 (`grep -rniE "todo|next" README.md docs`); `-a` added in 009; `\|`, `\b` added in 010; `-B N` added in the lifecycle-2 merge; `-o` added in 032*
+
+### cmp -s: are two files identical?
+
+`cmp -s <file1> <file2>`. Compares two files byte by byte. `-s` (silent) prints nothing;
+the exit code says it: 0 when identical, 1 when they differ. Faster than `diff` when you
+only need yes or no.
+
+Example (032: did the `sed` mutation really change the file?):
+`if cmp -s run.py "$S/run.py.orig"; then echo "mutation did not change the file"; fi`.
+A `sed` pattern that doesn't match changes nothing and reports no error, so without this
+check a "mutation" could run the tests on unchanged code and look like a pass.
+
+PowerShell: `(Get-FileHash run.py).Hash -eq (Get-FileHash $S\run.py.orig).Hash`.
+
+*First used in 032*
+
+### shell function: name a repeated sequence
+
+`name() { command1; command2 "$1"; }`. Defines a function for the rest of this shell
+session. Inside it, `$1`, `$2`, … are its arguments, and `return` leaves it early.
+
+Example (032, one mutation per call: restore the original, apply one `sed` edit, check that
+it changed something, run the tests):
+`mutate() { cp "$S/run.py.orig" run.py; sed -i "$1" run.py; …; python -m unittest …; }`,
+then `mutate 's/…ValueError, //' "no ValueError"`. ⚠️ It overwrites `run.py`, so keep the
+backup, restore it after the last call, and check with `git diff --quiet -- run.py`.
+
+PowerShell: `function Invoke-Mutation($Edit, $Name) { … }`, using a verb-noun name, so it
+can't collide with a built-in alias.
+
+*First used in 032*
 
 ### tr: translate characters
 
@@ -1333,6 +1371,10 @@ undo it.
   `sed -i -e '/^<<<<<<< HEAD$/d' -e '/^=======$/d' -e '/^>>>>>>> origin\/master$/d' docs/dev-journal/README.md`
   (`\/` is a `/` inside a `/…/` pattern). Then `grep -c` for the markers to check that none
   are left.
+- `-E`: extended regex, as in [grep -E](#grep-search-text): `( )`, `+`, `?` and `|` work
+  without backslashes. Example (032, as a filter): `… | sed -E 's/ \(tests[^)]*\)//'`
+  deletes unittest's ` (tests.module.Class.test)` suffix, where `\(` is a literal
+  parenthesis.
 - ⚠️ In GNU sed's basic regex, `\|` means "or", so `s/a\|b/…/` matches `a` *or* `b`. It is not
   a literal `|`, which needs no backslash. Mixing them up can match an empty string and
   scramble the line, so check the result with `sed -n '<N>p'` and fix it with `git diff`.
@@ -1348,7 +1390,7 @@ leaves files alone. Example: `git show HEAD:server.py | sed 's/old/new/' > serve
 afterwards. PowerShell: `(git show HEAD:server.py) -replace 'old','new' | Set-Content
 -Encoding utf8 server.py`.
 
-*First used in 001; filter form added in 005; `g` and `;` added in 008; `/pattern/d` added in 017; `-e` added in the lifecycle-2 merge*
+*First used in 001; filter form added in 005; `g` and `;` added in 008; `/pattern/d` added in 017; `-e` added in the lifecycle-2 merge; `-E` added in 032*
 
 ### heredoc: multi-line input to a command
 

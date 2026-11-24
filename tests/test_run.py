@@ -17,7 +17,7 @@ from unittest import mock
 
 import run
 from client import make_client_context
-from config import HOST
+from config import HOST, MAX_MESSAGE_SIZE
 from server import Server, make_server_context
 from users import UserStore
 
@@ -358,6 +358,67 @@ class ProbeServerTest(unittest.TestCase):
         self.start_our_server()
         with mock.patch("run.CERT_FILE", OTHER_CERT):  # we'd trust only "other"
             self.assertEqual(self.probe(), run.ServerState.NOT_OURS)
+
+    def fake_tls_peer(self, reply):
+        """A TLS server holding *our* test certificate and key that answers with ``reply``.
+
+        It passes the pinned handshake, so only the reply decides what the probe sees. It
+        reads one request line, sends ``reply`` (``b""``: nothing) and closes. With
+        ``reply=None`` it stays silent until the test ends.
+        """
+        context = make_server_context(TEST_CERT, TEST_KEY)
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.addCleanup(listener.close)
+        listener.bind((HOST, 0))
+        listener.listen()
+        self.use_port(listener.getsockname()[1])
+        test_over = threading.Event()
+
+        def serve_once():
+            try:
+                conn, _ = listener.accept()
+                with context.wrap_socket(conn, server_side=True) as tls, tls.makefile("rb") as f:
+                    f.readline()  # the probe's help request
+                    if reply is None:
+                        test_over.wait(timeout=5)
+                    else:
+                        tls.sendall(reply)
+            except OSError:
+                pass  # the probe gave up first (e.g. after a too-long line): expected here
+
+        thread = threading.Thread(target=serve_once, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, timeout=5)
+        self.addCleanup(test_over.set)  # runs before the join: a silent peer lets go
+
+    def test_fake_peer_with_a_real_help_reply_is_ready(self):
+        # The control for the cases below: the fake peer is faithful enough to pass.
+        self.fake_tls_peer(b'{"status": "ok", "command": "help", "data": {}}\n')
+        self.assertEqual(self.probe(), run.ServerState.READY)
+
+    def test_tls_peer_with_our_certificate_but_another_protocol_is_not_ours(self):
+        # The rows of the pre-review's hostile-input table that apply to a peer we read from.
+        too_long = b'"' + b"x" * MAX_MESSAGE_SIZE + b'"\n'
+        deep = b"[" * 20_000 + b"]" * 20_000 + b"\n"  # under the size limit, over the recursion limit
+        for name, reply in (
+            ("bytes that aren't UTF-8", b"\xff\xfe\n"),
+            ("invalid JSON", b"not json\n"),
+            ("null", b"null\n"),
+            ("a list", b"[]\n"),
+            ("a number", b"5\n"),
+            ("a string", b'"x"\n'),
+            ("an integer over 4300 digits", b"1" * 5000 + b"\n"),
+            ("nesting deeper than the recursion limit", deep),
+            ("a line over MAX_MESSAGE_SIZE", too_long),
+            ("a reply without the final newline", b'{"status": "ok", "command": "help", "data": {}}'),
+            ("closed right after the handshake", b""),
+            ("an answer to another command", b'{"status": "ok", "command": "info", "data": {}}\n'),
+            ("no command at all", b'{"status": "ok"}\n'),
+            ("silence", None),
+        ):
+            with self.subTest(name):
+                self.fake_tls_peer(reply)
+                self.assertEqual(self.probe(), run.ServerState.NOT_OURS)
 
 
 class StartServerInBackgroundTest(unittest.TestCase):
