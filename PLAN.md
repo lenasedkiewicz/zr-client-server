@@ -151,6 +151,21 @@ same on every OS, unlike separate `.bat` / `.sh` scripts.
 
 - **Server already running?** Try to connect to `HOST:PORT` first. If it succeeds, skip
   starting a new server (avoids "address already in use") and go straight to the client.
+  - *(step 16, task 8.3)* "Something accepted a TCP connection" is not "our server
+    answered". `probe_server()` does the real exchange, each step limited by
+    `PROBE_TIMEOUT` (1 s): a TLS handshake with the pinned `BASE_DIR/server.crt`, then
+    `help` (no login needed), checked with the client's `check_response`. It returns a
+    `ServerState`:
+    - `FREE`: the connect was refused, so start a server.
+    - `READY`: reuse it.
+    - `BUSY`: TCP connected, but the handshake timed out. Our server accepts the next
+      client only when it's free, but a program that listens and never accepts looks the
+      same, and the message says so.
+    - `NOT_OURS`: no TLS, another certificate, or a bad reply.
+
+    `BUSY` and `NOT_OURS` exit with `EXIT_LAUNCHER_FAILED` before anything starts. A missing
+    certificate is reported up front. Each probe now shows in the server log as INFO
+    connect/disconnect, not as a "TLS handshake failed" warning.
 - **Start the server in its own terminal window**, so its log stays separate from the
   client prompt:
   - Windows: `subprocess.Popen([sys.executable, "server.py"], creationflags=CREATE_NEW_CONSOLE)`.
@@ -161,6 +176,11 @@ same on every OS, unlike separate `.bat` / `.sh` scripts.
     the same terminal, with its output going to `server.log`.
 - **Wait until the server is ready**: try to connect every 0.1 s, give up after ~5 s with a
   clear error. This is better than a fixed `sleep`.
+  - *(step 16, task 8.3)* The wait probes with `probe_server()` until `READY`. `NOT_OURS`
+    ends it at once, because another program took the port. After a timeout with a window,
+    it prints how to see the window's error (`python server.py` in a terminal: a console
+    window closes when its program exits). It never starts a second server, because the
+    first may just be slow.
 - **Run the client in the current terminal** (`subprocess.run([sys.executable, "client.py"])`),
   so the user types commands where they ran `run.py`.
 - **Shutdown**: `stop` already ends both processes, and the server window closes with them.

@@ -40,7 +40,10 @@ The launcher:
 - opens the server in a new terminal window (Windows console, macOS Terminal, or the first
   available Linux terminal: `x-terminal-emulator`, `gnome-terminal`, `konsole`, `xterm`),
 - waits until the server accepts connections, then runs the client in the current terminal,
-- reuses a server that is already running instead of starting a second one,
+- reuses a server that is already running instead of starting a second one, after checking
+  it really is this server: a TLS handshake with our certificate and a `help` request. If
+  another program has the port, or the server is busy with another client, it says so and
+  exits instead of starting a client that would hang,
 - falls back to running the server in the background (log in `server.log`) when no terminal
   window can be opened, e.g. over SSH. The launcher stops such a server whenever it ends:
   when the client exits, after a start-up timeout, or on Ctrl+C while it waits for start-up.
@@ -87,7 +90,7 @@ codes are the launcher's own, from before the client starts:
 
 | Code | Meaning |
 |------|---------|
-| 2 | the launcher couldn't start a server: no terminal for the admin prompt, end of input at it, or the server didn't start within 5 s |
+| 2 | the launcher couldn't start or reach a server: no `server.crt`, no terminal for the admin prompt, end of input at it, the server didn't start within 5 s, another program has the port, or the server is busy with another client |
 | 130 | Ctrl+C at the admin prompt or while waiting for the server to start |
 
 Ctrl+C while the client runs reaches the client, which handles it. The launcher waits and
