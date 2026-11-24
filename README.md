@@ -25,7 +25,8 @@ MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key 
 
 `server.key` is secret and git-ignored. The server refuses to start without the pair, and
 the client refuses to connect without `server.crt`. It trusts only that certificate. Run
-the command again when it expires after 365 days.
+the command again when it expires after 365 days, or when a program says the certificate
+or key "can't be used" (a corrupt file, or a key that doesn't match the certificate).
 
 ## Quick start
 
@@ -90,7 +91,7 @@ codes are the launcher's own, from before the client starts:
 
 | Code | Meaning |
 |------|---------|
-| 2 | the launcher couldn't start or reach a server: no `server.crt`, no terminal for the admin prompt, end of input at it, the server didn't start within 5 s, another program has the port, or the server is busy with another client |
+| 2 | the launcher couldn't start or reach a server: a missing or unusable `server.crt`, no terminal for the admin prompt, end of input at it, the server didn't start within 5 s, another program has the port, or the server is busy with another client |
 | 130 | Ctrl+C at the admin prompt or while waiting for the server to start |
 
 Ctrl+C while the client runs reaches the client, which handles it. The launcher waits and

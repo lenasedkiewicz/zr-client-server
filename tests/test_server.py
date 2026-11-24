@@ -297,6 +297,21 @@ class ServerMainTest(unittest.TestCase):
         self.assertIn("TLS certificate or key not found", output)
         self.assertNotIn("Could not listen", output)
 
+    def test_unusable_certificate_is_not_called_a_bind_error(self):
+        # ssl.SSLError is an OSError too: before this fix, the bind clause caught it and said
+        # "Could not listen". A real broken file, loaded by the real make_server_context.
+        tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp_dir.cleanup)
+        broken = os.path.join(tmp_dir.name, "server.crt")
+        with open(broken, "w", encoding="ascii") as f:
+            f.write("not a certificate\n")
+        real_make_context = server_module.make_server_context
+        with mock.patch("server.make_server_context", lambda: real_make_context(broken, broken)):
+            output = self.run_main()
+        self.assertIn("TLS certificate or key can't be used", output)
+        self.assertIn("openssl req", output)  # how to create them again
+        self.assertNotIn("Could not listen", output)
+
 
 class DroppedClientLoggingTest(unittest.TestCase):
     """Call ``Server.handle_client`` with a fake connection: failures happen on demand."""

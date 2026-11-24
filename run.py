@@ -5,6 +5,7 @@ import os
 import shlex
 import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import time
@@ -241,10 +242,16 @@ def run_client():
 
 def main():
     """Start a server if needed, run the client; return the client's exit code."""
-    # The probe and the client both need the certificate; without it, say so at once
-    # instead of after a 5 s start-up timeout.
-    if not os.path.exists(CERT_FILE):
+    # The probe and the client both need the certificate. Load it once now, so a missing or
+    # broken file is reported at once, not as a traceback or after a 5 s start-up timeout.
+    # Loading it, not os.path.exists(): a file can exist and still be unusable.
+    try:
+        make_client_context(CERT_FILE)
+    except FileNotFoundError:
         print(f"TLS certificate not found ({CERT_FILE}) - see README 'Setup'")
+        return EXIT_LAUNCHER_FAILED
+    except ssl.SSLError as error:  # corrupt or not PEM
+        print(f"TLS certificate {CERT_FILE} can't be used: {error} - see README 'Setup'")
         return EXIT_LAUNCHER_FAILED
     state = probe_server()
     if state is ServerState.NOT_OURS:

@@ -7,7 +7,9 @@ patched on ``client``, the module that looks them up.
 import contextlib
 import io
 import json
+import os
 import socket
+import tempfile
 import unittest
 from unittest import mock
 
@@ -51,6 +53,7 @@ class ClientMainTest(unittest.TestCase):
         self.sock = mock.MagicMock()  # MagicMock: supports `with sock`
         self.context = mock.Mock()
         self.context.wrap_socket.return_value = self.sock
+        self.real_make_client_context = client.make_client_context  # before it's patched
         self.patch("client.make_client_context", return_value=self.context)
         self.create_connection = self.patch("client.socket.create_connection")
         self.send = self.patch("client.send_message")
@@ -99,6 +102,21 @@ class ClientMainTest(unittest.TestCase):
     def test_missing_certificate(self):
         self.patch("client.make_client_context", side_effect=FileNotFoundError(2, "No such file"))
         self.assertIn("TLS certificate not found", self.run_client())
+        self.assert_exit_code(client.EXIT_FAILURE)
+        self.create_connection.assert_not_called()
+
+    def test_unusable_certificate(self):
+        # The file exists but isn't a certificate: the real loader raises ssl.SSLError.
+        tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp_dir.cleanup)
+        broken = os.path.join(tmp_dir.name, "server.crt")
+        with open(broken, "w", encoding="ascii") as f:
+            f.write("not a certificate\n")
+        real_make_context = self.real_make_client_context
+        self.patch("client.make_client_context", new=lambda: real_make_context(broken))
+        output = self.run_client()
+        self.assertIn("can't be used", output)
+        self.assertIn("see README 'Setup'", output)
         self.assert_exit_code(client.EXIT_FAILURE)
         self.create_connection.assert_not_called()
 

@@ -276,6 +276,11 @@ salted PBKDF2 hashes; this adds the in-transit layer (defence in depth).
   - Log "Client connected" only after a successful handshake.
   - **Fail closed:** cert or key missing → exit with a message showing the `openssl`
     command. Never fall back to plain text.
+  - *(step 16, pre-review fix on batch 8)* **Unusable**, not only missing: a corrupt file,
+    a non-PEM file or a key that doesn't match raises `ssl.SSLError`, an `OSError`
+    subclass. The server catches it before its bind clause, which used to report it as
+    "Could not listen". The client and the launcher load the certificate instead of
+    checking that it exists. Each names the file and how to create it again.
 - **Client:** `ssl.create_default_context(cafile=TLS_CERT_FILE)` — certificate and hostname
   verification stay on, and only our certificate is trusted (pinning); then
   `wrap_socket(sock, server_hostname=HOST)`. Missing `server.crt` or a failed verification

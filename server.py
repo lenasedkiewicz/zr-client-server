@@ -348,8 +348,16 @@ def main():
         print("Create them once (Git Bash) in the project folder:")
         print(f"  {OPENSSL_COMMAND}")
         sys.exit(1)
+    except ssl.SSLError as error:
+        # The files exist but can't be loaded: corrupt, not PEM, or a key that doesn't match
+        # the certificate. An OSError too, so before the bind clause below, which would
+        # otherwise report it as "Could not listen".
+        print(f"TLS certificate or key can't be used ({TLS_CERT_FILE}, {TLS_KEY_FILE}): {error}")
+        print("Create them again (Git Bash) in the project folder:")
+        print(f"  {OPENSSL_COMMAND}")
+        sys.exit(1)
     except OSError as error:
-        # bind() failed. Must come after FileNotFoundError, which is an OSError too. Compare
+        # bind() failed. Must come after FileNotFoundError and ssl.SSLError, OSErrors too. Compare
         # the error code, not the text: the OS message is localised (and 10048 on Windows is
         # errno.EADDRINUSE there, so one check covers both systems).
         if error.errno == errno.EADDRINUSE:

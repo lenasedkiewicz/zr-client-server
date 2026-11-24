@@ -231,6 +231,20 @@ class WhoIsOnThePortTest(LauncherTestCase):
         self.probe.assert_not_called()
         self.assert_nothing_started()
 
+    def test_unusable_certificate_stops_before_anything(self):
+        # It exists, so an existence check would pass; loading it is what fails.
+        tmp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp_dir.cleanup)
+        broken = os.path.join(tmp_dir.name, "server.crt")
+        with open(broken, "w", encoding="ascii") as f:
+            f.write("not a certificate\n")
+        self.patch("run.CERT_FILE", broken)
+        code, output = self.run_main()
+        self.assertEqual(code, run.EXIT_LAUNCHER_FAILED)
+        self.assertIn("can't be used", output)
+        self.probe.assert_not_called()
+        self.assert_nothing_started()
+
 
 class WaitLoopTest(unittest.TestCase):
     """The start-up and exit waits, with a fake clock instead of sleeping."""

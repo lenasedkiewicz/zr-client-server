@@ -114,6 +114,9 @@ def main():
     except FileNotFoundError:
         print(f"TLS certificate not found ({TLS_CERT_FILE}) - see README 'Setup'")
         return EXIT_FAILURE
+    except ssl.SSLError as error:  # the file exists but isn't a usable certificate
+        print(f"TLS certificate {TLS_CERT_FILE} can't be used: {error} - see README 'Setup'")
+        return EXIT_FAILURE
     try:
         sock = connect(context)
         if sock is None:
