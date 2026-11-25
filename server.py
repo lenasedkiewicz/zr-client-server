@@ -46,7 +46,12 @@ OPENSSL_COMMAND = (
 
 
 def make_server_context(cert_file=TLS_CERT_FILE, key_file=TLS_KEY_FILE):
-    """Build the server-side TLS context; raises ``FileNotFoundError`` if a file is missing."""
+    """Build the server-side TLS context.
+
+    Raises ``FileNotFoundError`` if a file is missing, ``ssl.SSLError`` if one isn't a usable
+    certificate or key (or they don't match), and another ``OSError`` such as
+    ``PermissionError`` if one can't be read.
+    """
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(cert_file, key_file)
@@ -340,26 +345,29 @@ class Server:
 
 def main():
     """Start the server from the command line; exit with code 1 if it can't start."""
+    # Two steps, two try blocks: loading the certificate and binding the port both raise
+    # OSError, so one except clause couldn't tell "fix the files" from "free the port".
     try:
-        server = Server(host=HOST, port=PORT)
+        tls_context = make_server_context()
     except FileNotFoundError:
         # Fail closed: never fall back to plain text.
         print(f"TLS certificate or key not found ({TLS_CERT_FILE}, {TLS_KEY_FILE}).")
         print("Create them once (Git Bash) in the project folder:")
         print(f"  {OPENSSL_COMMAND}")
         sys.exit(1)
-    except ssl.SSLError as error:
-        # The files exist but can't be loaded: corrupt, not PEM, or a key that doesn't match
-        # the certificate. An OSError too, so before the bind clause below, which would
-        # otherwise report it as "Could not listen".
+    except OSError as error:
+        # The files exist but can't be loaded. ssl.SSLError: corrupt, not PEM, or a key that
+        # doesn't match the certificate. PermissionError: no read permission, or a directory.
         print(f"TLS certificate or key can't be used ({TLS_CERT_FILE}, {TLS_KEY_FILE}): {error}")
-        print("Create them again (Git Bash) in the project folder:")
+        print("Check that both are readable files, or create them again (Git Bash) "
+              "in the project folder:")
         print(f"  {OPENSSL_COMMAND}")
         sys.exit(1)
+    try:
+        server = Server(host=HOST, port=PORT, tls_context=tls_context)
     except OSError as error:
-        # bind() failed. Must come after FileNotFoundError and ssl.SSLError, OSErrors too. Compare
-        # the error code, not the text: the OS message is localised (and 10048 on Windows is
-        # errno.EADDRINUSE there, so one check covers both systems).
+        # bind() failed. Compare the error code, not the text: the OS message is localised
+        # (and 10048 on Windows is errno.EADDRINUSE there, so one check covers both systems).
         if error.errno == errno.EADDRINUSE:
             print(f"Could not listen on {HOST}:{PORT}: the port is already in use.")
             print("Another server or program may be running. Stop it, or change PORT in config.py.")

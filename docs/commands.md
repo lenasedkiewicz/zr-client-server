@@ -736,9 +736,18 @@ it in the copy. Unlike [git archive](#git-archive-export-a-commits-files), this 
 files as they are on disk, uncommitted changes included. ⚠️ In PowerShell 5.1 don't pipe
 binary data between programs (see git archive); run it in Git Bash.
 
+- `--eol`: show each file's line endings, in the index (`i/`) and in the working tree
+  (`w/`): `lf`, `crlf`, `mixed`, or `-text` for a binary file. With `core.autocrlf=true`
+  (the usual Windows setup) a text file is `i/lf w/crlf`: LF in the repo, CRLF on disk.
+  Use it after an edit by a POSIX tool such as [sed -i](#sed--i-edit-a-file-in-place), along
+  with `git diff --stat`. If the stat shows every line changed, the line endings changed.
+  Git's "LF will be replaced by CRLF" warning is only this conversion, not a change.
+
+Example (034): `git ls-files --eol run.py client.py`
+
 PowerShell: the same command.
 
-*First used with the pre-review skill; `-z` added in 028*
+*First used with the pre-review skill; `-z` added in 028; `--eol` added in 034*
 
 ### git status: show the working tree state
 

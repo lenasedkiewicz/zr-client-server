@@ -5,6 +5,7 @@ patched on ``client``, the module that looks them up.
 """
 
 import contextlib
+import errno
 import io
 import json
 import os
@@ -117,6 +118,17 @@ class ClientMainTest(unittest.TestCase):
         output = self.run_client()
         self.assertIn("can't be used", output)
         self.assertIn("see README 'Setup'", output)
+        self.assert_exit_code(client.EXIT_FAILURE)
+        self.create_connection.assert_not_called()
+
+    def test_unreadable_certificate(self):
+        # No read permission, or server.crt is a directory (on Windows both give errno 13).
+        # Mocked: what a directory raises differs between systems, this doesn't.
+        error = PermissionError(errno.EACCES, "Permission denied", "server.crt")
+        self.patch("client.make_client_context", side_effect=error)
+        output = self.run_client()
+        self.assertIn("can't be used", output)
+        self.assertIn("Permission denied", output)
         self.assert_exit_code(client.EXIT_FAILURE)
         self.create_connection.assert_not_called()
 

@@ -5,7 +5,6 @@ import os
 import shlex
 import shutil
 import socket
-import ssl
 import subprocess
 import sys
 import time
@@ -250,7 +249,7 @@ def main():
     except FileNotFoundError:
         print(f"TLS certificate not found ({CERT_FILE}) - see README 'Setup'")
         return EXIT_LAUNCHER_FAILED
-    except ssl.SSLError as error:  # corrupt or not PEM
+    except OSError as error:  # ssl.SSLError (corrupt, not PEM) or PermissionError (unreadable)
         print(f"TLS certificate {CERT_FILE} can't be used: {error} - see README 'Setup'")
         return EXIT_LAUNCHER_FAILED
     state = probe_server()

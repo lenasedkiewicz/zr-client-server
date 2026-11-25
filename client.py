@@ -114,7 +114,9 @@ def main():
     except FileNotFoundError:
         print(f"TLS certificate not found ({TLS_CERT_FILE}) - see README 'Setup'")
         return EXIT_FAILURE
-    except ssl.SSLError as error:  # the file exists but isn't a usable certificate
+    except OSError as error:
+        # The file exists but can't be loaded. ssl.SSLError: not a usable certificate;
+        # PermissionError: no read permission, or a directory. After FileNotFoundError, its child.
         print(f"TLS certificate {TLS_CERT_FILE} can't be used: {error} - see README 'Setup'")
         return EXIT_FAILURE
     try:

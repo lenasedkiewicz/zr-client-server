@@ -6,6 +6,7 @@ tested against real sockets: a real ``Server`` in a thread, and listeners that a
 """
 
 import contextlib
+import errno
 import io
 import os
 import socket
@@ -242,6 +243,18 @@ class WhoIsOnThePortTest(LauncherTestCase):
         code, output = self.run_main()
         self.assertEqual(code, run.EXIT_LAUNCHER_FAILED)
         self.assertIn("can't be used", output)
+        self.probe.assert_not_called()
+        self.assert_nothing_started()
+
+    def test_unreadable_certificate_stops_before_anything(self):
+        # No read permission, or server.crt is a directory (on Windows both give errno 13).
+        # Mocked: what a directory raises differs between systems, this doesn't.
+        error = PermissionError(errno.EACCES, "Permission denied", "server.crt")
+        self.patch("run.make_client_context", side_effect=error)
+        code, output = self.run_main()
+        self.assertEqual(code, run.EXIT_LAUNCHER_FAILED)
+        self.assertIn("can't be used", output)
+        self.assertIn("Permission denied", output)
         self.probe.assert_not_called()
         self.assert_nothing_started()
 

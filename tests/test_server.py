@@ -257,11 +257,18 @@ class PortExclusivityTest(unittest.TestCase):
 class ServerMainTest(unittest.TestCase):
     """``server.main()`` turns a failed start-up into one message and exit code 1."""
 
-    def run_main(self):
-        """Call ``main()``; return the printed text. A traceback would fail the test with it."""
+    def run_main(self, make_context=None):
+        """Call ``main()``; return the printed text. A traceback would fail the test with it.
+
+        ``make_context`` stands in for ``make_server_context``. By default it returns the test
+        certificate's context, because ``server.crt`` is not in CI.
+        """
+        if make_context is None:
+            make_context = mock.Mock(return_value=make_server_context(TEST_CERT, TEST_KEY))
         output = io.StringIO()
         # main() would read the real users.json and ask for an admin; neither is under test.
         with mock.patch("server.UserStore"), mock.patch("server.ensure_admin"), \
+                mock.patch("server.make_server_context", make_context), \
                 contextlib.redirect_stdout(output):
             with self.assertRaises(SystemExit) as raised:
                 server_module.main()
@@ -275,9 +282,7 @@ class ServerMainTest(unittest.TestCase):
         holder.bind((HOST, 0))
         holder.listen()
         port = holder.getsockname()[1]
-        test_context = make_server_context(TEST_CERT, TEST_KEY)  # server.crt is not in CI
-        with mock.patch("server.PORT", port), \
-                mock.patch("server.make_server_context", return_value=test_context):
+        with mock.patch("server.PORT", port):
             output = self.run_main()
         self.assertIn(f"Could not listen on {HOST}:{port}: the port is already in use.", output)
         self.assertIn("change PORT in config.py", output)
@@ -292,24 +297,32 @@ class ServerMainTest(unittest.TestCase):
 
     def test_missing_certificate_still_gives_the_openssl_hint(self):
         # FileNotFoundError is an OSError too: its own except clause must come first.
-        with mock.patch("server.Server", side_effect=FileNotFoundError(2, "No such file")):
-            output = self.run_main()
+        missing = os.path.join(tempfile.gettempdir(), "no-such-dir", "server.crt")
+        output = self.run_main(lambda: make_server_context(missing, missing))
         self.assertIn("TLS certificate or key not found", output)
         self.assertNotIn("Could not listen", output)
 
     def test_unusable_certificate_is_not_called_a_bind_error(self):
-        # ssl.SSLError is an OSError too: before this fix, the bind clause caught it and said
-        # "Could not listen". A real broken file, loaded by the real make_server_context.
+        # ssl.SSLError is an OSError too, so a shared except clause would say "Could not
+        # listen". A real broken file, loaded by the real make_server_context.
         tmp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(tmp_dir.cleanup)
         broken = os.path.join(tmp_dir.name, "server.crt")
         with open(broken, "w", encoding="ascii") as f:
             f.write("not a certificate\n")
-        real_make_context = server_module.make_server_context
-        with mock.patch("server.make_server_context", lambda: real_make_context(broken, broken)):
-            output = self.run_main()
+        output = self.run_main(lambda: make_server_context(broken, broken))
         self.assertIn("TLS certificate or key can't be used", output)
         self.assertIn("openssl req", output)  # how to create them again
+        self.assertNotIn("Could not listen", output)
+
+    def test_unreadable_certificate_is_not_called_a_bind_error(self):
+        # No read permission, or server.crt is a directory (on Windows both give errno 13).
+        # Mocked: what a directory raises differs between systems, this doesn't.
+        error = PermissionError(errno.EACCES, "Permission denied", "server.crt")
+        output = self.run_main(mock.Mock(side_effect=error))
+        self.assertIn("TLS certificate or key can't be used", output)
+        self.assertIn("Permission denied", output)
+        self.assertIn("readable files", output)
         self.assertNotIn("Could not listen", output)
 
 

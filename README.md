@@ -26,7 +26,8 @@ MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key 
 `server.key` is secret and git-ignored. The server refuses to start without the pair, and
 the client refuses to connect without `server.crt`. It trusts only that certificate. Run
 the command again when it expires after 365 days, or when a program says the certificate
-or key "can't be used" (a corrupt file, or a key that doesn't match the certificate).
+or key "can't be used" (a corrupt file, a key that doesn't match the certificate, or a
+file that can't be read: check its permissions and that it isn't a folder).
 
 ## Quick start
 
