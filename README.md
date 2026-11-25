@@ -93,7 +93,7 @@ codes are the launcher's own, from before the client starts:
 | Code | Meaning |
 |------|---------|
 | 2 | the launcher couldn't start or reach a server: a missing or unusable `server.crt`, no terminal for the admin prompt, end of input at it, the server didn't start within 5 s, another program has the port, or the server is busy with another client |
-| 130 | Ctrl+C at the admin prompt or while waiting for the server to start |
+| 130 | Ctrl+C anywhere outside the client: at the admin prompt, while checking or starting the server, or while stopping it. A background server is stopped first |
 
 Ctrl+C while the client runs reaches the client, which handles it. The launcher waits and
 exits with the client's code.

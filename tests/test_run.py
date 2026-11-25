@@ -70,6 +70,11 @@ class LauncherTestCase(unittest.TestCase):
                 code = exit_.code
         return code, output.getvalue()
 
+    def assert_nothing_started(self):
+        self.start_background.assert_not_called()
+        run.start_server_in_window.assert_not_called()
+        self.client_popen.assert_not_called()
+
     def assert_stopped_gracefully(self):
         """terminate() first, then a wait with a time limit, and no kill()."""
         self.assertEqual(
@@ -130,6 +135,36 @@ class BackgroundServerCleanupTest(LauncherTestCase):
         self.wait_for_server.assert_not_called()
 
 
+class CtrlCAnywhereTest(LauncherTestCase):
+    """Ctrl+C in any wait gives a message and ``EXIT_INTERRUPTED``, never a traceback."""
+
+    def test_ctrl_c_during_the_first_probe(self):
+        # Against a silent peer the probe can take about 3 s (three 1 s timeouts).
+        self.probe.side_effect = KeyboardInterrupt
+        code, output = self.run_main()
+        self.assertEqual(code, run.EXIT_INTERRUPTED)
+        self.assertIn("Interrupted", output)
+        self.assert_nothing_started()
+
+    def test_ctrl_c_while_stopping_kills_the_server_at_once(self):
+        # A second Ctrl+C during the 5 s stop wait: don't wait, and don't skip the kill().
+        self.process.wait.side_effect = [KeyboardInterrupt, 0]
+        code, output = self.run_main()
+        self.assertEqual(code, run.EXIT_INTERRUPTED)
+        self.process.terminate.assert_called_once()
+        self.process.kill.assert_called_once()
+        self.assertEqual(self.process.wait.call_count, 2, "kill() must be followed by wait()")
+        self.assertIn("Background server stopped", output)
+
+    def test_ctrl_c_during_the_exit_check(self):
+        # After the client ends, the launcher probes a reused server to see if it stopped.
+        self.probe.return_value = run.ServerState.READY
+        self.patch("run.wait_for_server_exit", side_effect=KeyboardInterrupt)
+        code, output = self.run_main()
+        self.assertEqual(code, run.EXIT_INTERRUPTED)
+        self.assertIn("Interrupted", output)
+
+
 class ExitCodeTest(LauncherTestCase):
     """``main()`` exits with the client's code, or with its own when it failed first (8.2)."""
 
@@ -184,11 +219,6 @@ class ExitCodeTest(LauncherTestCase):
 
 class WhoIsOnThePortTest(LauncherTestCase):
     """``main()`` reuses only our server, and never starts a second one (task 8.3)."""
-
-    def assert_nothing_started(self):
-        self.start_background.assert_not_called()
-        run.start_server_in_window.assert_not_called()
-        self.client_popen.assert_not_called()
 
     def test_another_program_on_the_port_is_not_reused(self):
         # The review's acceptance test: no client is started against a stranger.

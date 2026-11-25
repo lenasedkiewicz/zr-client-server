@@ -192,8 +192,8 @@ same on every OS, unlike separate `.bat` / `.sh` scripts.
     its `finally`. This covers a normal end, the start-up timeout's `sys.exit(1)`, and Ctrl+C
     while waiting for start-up, which prints "Start-up cancelled" instead of a traceback.
     Stopping escalates: `terminate()`, then `wait(timeout=STOP_TIMEOUT)` (5 s), then
-    `kill()` + `wait()`. A server in a window or one already running is never touched,
-    and is not probed again.
+    `kill()` + `wait()`. A server in a window or one already running is never touched. It is
+    only probed after the client ends, to tell the user whether it is still running.
   - *(step 16, task 8.2, part 2)* **Exit code:** `main()` returns the client's exit code, and
     `__main__` calls `sys.exit(main())`. The client runs under `Popen` + `wait()`, retried on
     `KeyboardInterrupt`. Ctrl+C reaches the client in the same terminal, and the launcher
@@ -202,6 +202,12 @@ same on every OS, unlike separate `.bat` / `.sh` scripts.
     exit with `EXIT_LAUNCHER_FAILED` (2): no admin possible, or the start-up timeout. Ctrl+C
     before the client starts exits with `EXIT_INTERRUPTED` (130). README "Exit codes" has
     the table.
+  - *(step 16, pre-review fix on batch 8)* **Ctrl+C anywhere outside the client** gives
+    "Interrupted" and 130, not a traceback. `main()` wraps the launcher's body
+    (`launch()`) as the last line of defence. The specific handlers inside it keep their
+    messages. It covers the first probe (about 3 s against a silent peer), the stop wait
+    and the exit check. A Ctrl+C during the 5 s stop wait kills the background server at
+    once and is then re-raised, so the run still reports 130.
 - Use `sys.executable` and paths relative to `run.py`, so it works from any working
   directory and inside a virtualenv.
 - README: add a "Quick start" section with `python run.py`; keep the two-terminal

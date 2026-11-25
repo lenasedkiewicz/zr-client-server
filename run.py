@@ -146,6 +146,7 @@ def stop_background_server(process):
 
     ``terminate()`` sends SIGTERM on POSIX (on Windows it already kills at once);
     ``kill()`` (SIGKILL) is the last resort for a process that doesn't exit in time.
+    Ctrl+C during the wait means "don't wait": kill at once, then let the interrupt go on.
     A server that already exited (the client sent ``stop``) is left alone.
     """
     if process.poll() is not None:
@@ -156,6 +157,11 @@ def stop_background_server(process):
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()  # collect the exit status, so no zombie stays behind on POSIX
+    except KeyboardInterrupt:
+        process.kill()  # without this, the interrupt would skip it and leave the server running
+        process.wait()
+        print("Background server stopped")
+        raise  # the user cut the run short, so main() reports EXIT_INTERRUPTED
     print("Background server stopped")
 
 
@@ -240,6 +246,21 @@ def run_client():
 
 
 def main():
+    """Run the launcher; return its exit code (README "Exit codes").
+
+    The last line of defence for Ctrl+C. The handlers inside ``launch()`` give the messages
+    that know the context ("Admin setup cancelled", "Start-up cancelled"). This one catches
+    every other wait (a probe, stopping the server, the exit check), so none ends in a
+    traceback. ``launch()``'s ``finally`` has already stopped a background server by then.
+    """
+    try:
+        return launch()
+    except KeyboardInterrupt:
+        print("\nInterrupted")
+        return EXIT_INTERRUPTED
+
+
+def launch():
     """Start a server if needed, run the client; return the client's exit code."""
     # The probe and the client both need the certificate. Load it once now, so a missing or
     # broken file is reported at once, not as a traceback or after a 5 s start-up timeout.
