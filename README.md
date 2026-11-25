@@ -25,7 +25,9 @@ MSYS_NO_PATHCONV=1 openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key 
 
 `server.key` is secret and git-ignored. The server refuses to start without the pair, and
 the client refuses to connect without `server.crt`. It trusts only that certificate. Run
-the command again when it expires after 365 days.
+the command again when it expires after 365 days, or when a program says the certificate
+or key "can't be used" (a corrupt file, a key that doesn't match the certificate, or a
+file that can't be read: check its permissions and that it isn't a folder).
 
 ## Quick start
 
@@ -40,9 +42,13 @@ The launcher:
 - opens the server in a new terminal window (Windows console, macOS Terminal, or the first
   available Linux terminal: `x-terminal-emulator`, `gnome-terminal`, `konsole`, `xterm`),
 - waits until the server accepts connections, then runs the client in the current terminal,
-- reuses a server that is already running instead of starting a second one,
+- reuses a server that is already running instead of starting a second one, after checking
+  it really is this server: a TLS handshake with our certificate and a `help` request. If
+  another program has the port, or the server is busy with another client, it says so and
+  exits instead of starting a client that would hang,
 - falls back to running the server in the background (log in `server.log`) when no terminal
-  window can be opened, e.g. over SSH; such a server is stopped when the client exits.
+  window can be opened, e.g. over SSH. The launcher stops such a server whenever it ends:
+  when the client exits, after a start-up timeout, or on Ctrl+C while it waits for start-up.
 
 Typing `stop` ends both the server and the client. Leaving the client with Ctrl+C / Ctrl+D
 keeps a windowed server running.
@@ -68,6 +74,29 @@ If something goes wrong (no server, a network error, an unexpected reply), the c
 one line saying why and exits, without a traceback.
 
 Then type commands at the `>` prompt.
+
+### Exit codes
+
+The client's exit code tells a script (or `run.py`) how the session ended:
+
+| Code | Meaning |
+|------|---------|
+| 0 | the session ended normally: end of input (Ctrl+D, or Ctrl+Z then Enter on Windows), Ctrl+C at the prompt, or `stop` |
+| 1 | the client failed: no certificate, couldn't connect, lost the connection, or got a bad reply or none in time |
+| 130 | interrupted with Ctrl+C while connecting or waiting for a reply (the shell convention 128 + SIGINT) |
+
+Check it with `echo $?` (Bash) or `$LASTEXITCODE` (PowerShell) right after the client exits.
+
+`python run.py` exits with the client's code, so the table above holds for it too. Two
+codes are the launcher's own, from before the client starts:
+
+| Code | Meaning |
+|------|---------|
+| 2 | the launcher couldn't start or reach a server: a missing or unusable `server.crt`, no terminal for the admin prompt, end of input at it, the server didn't start within 5 s, another program has the port, or the server is busy with another client |
+| 130 | Ctrl+C anywhere outside the client: at the admin prompt, while checking or starting the server, or while stopping it. A background server is stopped first |
+
+Ctrl+C while the client runs reaches the client, which handles it. The launcher waits and
+exits with the client's code.
 
 ## First use
 
@@ -202,6 +231,9 @@ zr-client-server/
 ├── tests/
 │   ├── certs/         # test-only certificates (never use them elsewhere)
 │   ├── test_admin_setup.py
+│   ├── test_client.py
+│   ├── test_protocol.py
+│   ├── test_run.py    # the launcher, with mocks (no real windows)
 │   └── test_server.py
 ├── docs/
 │   ├── dev-journal/   # one learning entry per commit

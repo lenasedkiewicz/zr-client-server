@@ -265,6 +265,24 @@ PowerShell 5.1).
 
 *First used in 015*
 
+### netstat -ano: which process uses a port
+
+`netstat -ano`. Lists every TCP and UDP connection and listening port with its state and
+the ID of the process that owns it.
+
+- `-a`: all connections and listening ports. `-n`: numbers, not names, which is faster and
+  exact. `-o`: add the owning process ID (Windows; on Linux use `ss -ltnp`).
+
+Example (029: which process is the test server listening on 65432?):
+`netstat -ano | grep "127.0.0.1:65432" | grep LISTENING | awk '{print $NF}'`. `$NF` is
+awk's last field, the PID. Then check it with
+[tasklist /FI](#tasklist-list-running-processes) before
+[taskkill](#taskkill-stop-a-windows-process).
+
+PowerShell: `(Get-NetTCPConnection -LocalPort 65432 -State Listen).OwningProcess`.
+
+*First used in 029*
+
 ## Git
 
 ### git diff: show unstaged changes
@@ -294,8 +312,11 @@ During a merge, `git diff` with no arguments shows only the conflicted files, in
 - `-- . ':!<path>'`: everything except `<path>` (an "exclude pathspec"). Example:
   `git diff 8bc6362 HEAD --stat -- . ':!docs'` (what the review fixes changed, without the
   journal). PowerShell: the same, single quotes work there too.
+- `--quiet`: print nothing, and exit 0 if there are no differences, 1 if there are. Made
+  for scripts: `git diff --quiet -- run.py && echo "run.py clean"` (032: check that a file
+  has no uncommitted changes before mutating it, and that it's back to HEAD afterwards).
 
-*First used in 001; commit and `--` forms added in 007; merge view added in 008; `-U<n>` added in 017; `...` and `':!'` added with the pre-review skill*
+*First used in 001; commit and `--` forms added in 007; merge view added in 008; `-U<n>` added in 017; `...` and `':!'` added with the pre-review skill; `--quiet` added in 032*
 
 ### git add: stage changes
 
@@ -419,7 +440,13 @@ fetch to see `origin/feature/admin`.
 
 Example: `git branch -d feature/admin test/test-foundations` after their PRs were merged.
 
-*First used in 007; `-a` added in 008; `-vv`, `-d` added in 018*
+`[gone]` in `git branch -vv` (after `git fetch --prune`) means the remote branch was
+deleted, usually because its PR was merged. Those local branches are the ones to clean up.
+`-D` example (028): `git branch -D fix/server-lifecycle`. Its one commit was an older copy
+of a change merged under another hash, so `-d` refused. That was checked first with
+[diff <(…) <(…)](#diff---compare-two-commands-output).
+
+*First used in 007; `-a` added in 008; `-vv`, `-d` added in 018; `[gone]`, `-D` added in 028*
 
 ### git fetch: download new commits from the remote
 
@@ -643,6 +670,24 @@ Example: `gh pr list --head fix/server-survives-bad-client`;
 
 *First used in 011; `--limit`, `--json`, `--jq` added in 018*
 
+### gh run list: list GitHub Actions runs
+
+`gh run list [--branch <b>] [--limit N] [--json <fields> --jq <expr>]`. GitHub CLI: shows
+recent CI runs with their status (`completed`, `in_progress`), conclusion (`success`,
+`failure`), event (`push`, `pull_request`) and commit.
+
+- `--branch <b>`: only runs for that branch.
+- `--json` / `--jq`: pick fields and format them, as for
+  [gh pr list](#gh-pr-list-list-pull-requests).
+
+Example (028: did CI pass on the merged PR #11?): `gh run list --branch master --limit 3`;
+`gh run list --limit 3 --json headSha,status,conclusion,event,headBranch -q '.[] | "\(.headBranch) \(.event) \(.headSha[0:7]) \(.status) \(.conclusion)"'`.
+`-q` is short for `--jq`.
+
+PowerShell: the same command. Quote the `--jq` expression with single quotes there too.
+
+*First used in 028*
+
 ### git ls-tree: list files in a commit
 
 `git ls-tree [--name-only] <rev> [<path>]`. Lists the files and folders stored in a commit or
@@ -680,9 +725,29 @@ files are left out, so it shows what a reviewer will actually get.
 
 Example: `git ls-files`; `git ls-files tests`
 
+- `-z`: end each name with a NUL byte instead of a newline, so a name with spaces or a
+  newline can't be split in two. Pair it with [xargs -0](#xargs-turn-input-lines-into-arguments).
+
+Example (028: a scratch copy of the repo with only tracked files, plus the working tree's
+uncommitted `run.py`):
+`git ls-files -z | xargs -0 tar -cf - | tar -x -C "$S/e2e"`.
+`tar -c` creates an archive, `-f -` writes it to stdout, and the second `tar -x -C` unpacks
+it in the copy. Unlike [git archive](#git-archive-export-a-commits-files), this copies the
+files as they are on disk, uncommitted changes included. ⚠️ In PowerShell 5.1 don't pipe
+binary data between programs (see git archive); run it in Git Bash.
+
+- `--eol`: show each file's line endings, in the index (`i/`) and in the working tree
+  (`w/`): `lf`, `crlf`, `mixed`, or `-text` for a binary file. With `core.autocrlf=true`
+  (the usual Windows setup) a text file is `i/lf w/crlf`: LF in the repo, CRLF on disk.
+  Use it after an edit by a POSIX tool such as [sed -i](#sed--i-edit-a-file-in-place), along
+  with `git diff --stat`. If the stat shows every line changed, the line endings changed.
+  Git's "LF will be replaced by CRLF" warning is only this conversion, not a change.
+
+Example (034): `git ls-files --eol run.py client.py`
+
 PowerShell: the same command.
 
-*First used with the pre-review skill*
+*First used with the pre-review skill; `-z` added in 028; `--eol` added in 034*
 
 ### git status: show the working tree state
 
@@ -699,7 +764,24 @@ other branch.
 
 Example: `git status --short --ignored`
 
-*First used in 005; `-sb` and merge codes added in 008*
+Gotcha (030): `git status --short users.json` prints nothing whether or not the file
+changed, because `users.json` is git-ignored and git doesn't watch it. Empty output
+doesn't prove "unchanged" there. Look at the file itself (`ls -l`, or read it).
+
+*First used in 005; `-sb` and merge codes added in 008; ignored-file gotcha added in 030*
+
+### git check-ignore: why is a file ignored?
+
+`git check-ignore -v <path>`. Prints the `.gitignore` rule that ignores `<path>`, as
+`file:line:pattern<TAB>path`, and nothing (exit code 1) if the file isn't ignored.
+
+- `-v`: verbose, show the matching rule, not only the path.
+
+Example (030): `git check-ignore -v users.json` → `.gitignore:27:users.json	users.json`.
+
+PowerShell: the same command.
+
+*First used in 030*
 
 ### git stash: put changes aside for a moment
 
@@ -870,17 +952,46 @@ Git Bash.
 
 Example: `tasklist | grep -i avast`. PowerShell: `Get-Process | Where-Object Name -Match avast`
 
-*First used in 016*
+- `/FI "PID eq <n>"`: only the process with that ID, to check what it is before stopping
+  it. In Git Bash write `//FI`: a single `/FI` looks like a path to Git Bash, which rewrites
+  it ([MSYS_NO_PATHCONV](#msys_no_pathconv-stop-git-bash-rewriting-paths)). PowerShell and
+  cmd take `/FI` as is.
+
+Example (029): `tasklist //FI "PID eq 44316"` → `python.exe 44316 Console …`, the test
+server found with [netstat](#netstat--ano-which-process-uses-a-port).
+
+*First used in 016; `/FI` added in 029*
+
+### taskkill: stop a Windows process
+
+`taskkill /PID <n> [/F]`. Stops the process with that ID. ⚠️ `/F` forces it, like
+`kill -9`: the process gets no chance to clean up. That's safe for a throwaway process you
+started yourself and checked with `tasklist /FI` first; never use it on a PID you haven't
+checked.
+
+Example (029, the test server started in a scratch copy): `taskkill //PID 44316 //F`
+(Git Bash; `//` for the same reason as `tasklist //FI`).
+
+PowerShell: `Stop-Process -Id 44316 -Force`.
+
+*First used in 029*
 
 ### ls: list files
 
-`ls [-R]`. Lists the files in a directory.
+`ls [-R] [-l] <path>`. Lists the files in a directory, or shows one file.
 
 - `-R`: recurse into subdirectories.
+- `-l`: long format: permissions, owner, size in bytes and modification time.
+- `--time-style=full-iso` (GNU `ls`, as in Git Bash): the full date and time, to the
+  fraction of a second, instead of a short date.
 
-PowerShell: `Get-ChildItem` (`-Recurse` for `-R`).
+Example (030: did a test run write to `users.json`?):
+`ls -l --time-style=full-iso users.json` → size 2 (`{}`), last changed 2026-10-08, so no.
 
-*First used in 001*
+PowerShell: `Get-ChildItem` (`-Recurse` for `-R`). For one file's size and time:
+`Get-Item users.json | Select-Object Length, LastWriteTime`.
+
+*First used in 001; `-l`, `--time-style` added in 030*
 
 ### cd / VAR=value: change directory, set a shell variable
 
@@ -1011,11 +1122,18 @@ end of file.
 PowerShell: `$null | python server.py; "exit=$LASTEXITCODE"` (`$LASTEXITCODE` holds a
 native program's exit code; `$?` is only `True`/`False`).
 
+After a pipe, `$?` is the exit code of the *last* command, so in
+`printf 'stop\n' | python client.py | tail -1` it would be `tail`'s. Bash keeps every
+stage's code in the array `PIPESTATUS`, counting from 0: `${PIPESTATUS[1]}` is
+`python client.py`'s. Read it in the very next command, because the next pipeline
+overwrites it. PowerShell: `$LASTEXITCODE` is the last *native* program's code, here also
+`tail`'s, so run the client without the pipe to see its code.
+
 `2>/dev/null` goes the other way: it throws away the command's error output (stream 2,
 stderr) and keeps normal output. Example: `ls docs/concepts 2>/dev/null` prints nothing
 instead of an error if the folder doesn't exist. PowerShell: `2>$null`.
 
-*First used in 006; `2>/dev/null` added in 021*
+*First used in 006; `2>/dev/null` added in 021; `PIPESTATUS` added in 029*
 
 ### head / tail: first or last lines
 
@@ -1042,18 +1160,53 @@ PowerShell: `Get-Content <file> -TotalCount N` / `-Tail N`. For piped output, us
 - `-a`: treat binary input as text. Without it, grep prints only `Binary file (standard input)
   matches` when the input has non-UTF-8 bytes (e.g. Windows error messages in a local
   code page).
+- `-o`: print only the part of each line that matched, not the whole line. Combined with
+  `-E`, it cuts one field out of noisy output: `grep -a -oE "^ERROR: [a-z_]+"` keeps
+  `ERROR: test_name` from unittest's longer failure headers (032).
 
 Example: `python -m unittest discover tests 2>&1 | grep -E "^(Ran|OK|FAIL|ERROR)"`.
 `2>&1` sends stderr, where unittest prints its summary, into the pipe.
 
 PowerShell: `Select-String -Pattern <p>` (`-NotMatch` for `-v`, `-Context 0,N` for `-A N`,
-`-Context N,0` for `-B N`, `(… | Measure-Object).Count` for `-c`).
+`-Context N,0` for `-B N`, `(… | Measure-Object).Count` for `-c`, and
+`(… ).Matches.Value` for `-o`).
 
 In a basic (non `-E`) pattern, `\|` means "or" and `\b` is a word boundary:
 `grep -n "\bENCODING\b\|\bjson\b" server.py` finds `json` but not `json_file`. Useful to check
 whether an import is still used.
 
-*First used in 001; `-c` added in 003; `-r`, `-i` added in 006 (`grep -rniE "todo|next" README.md docs`); `-a` added in 009; `\|`, `\b` added in 010; `-B N` added in the lifecycle-2 merge*
+*First used in 001; `-c` added in 003; `-r`, `-i` added in 006 (`grep -rniE "todo|next" README.md docs`); `-a` added in 009; `\|`, `\b` added in 010; `-B N` added in the lifecycle-2 merge; `-o` added in 032*
+
+### cmp -s: are two files identical?
+
+`cmp -s <file1> <file2>`. Compares two files byte by byte. `-s` (silent) prints nothing;
+the exit code says it: 0 when identical, 1 when they differ. Faster than `diff` when you
+only need yes or no.
+
+Example (032: did the `sed` mutation really change the file?):
+`if cmp -s run.py "$S/run.py.orig"; then echo "mutation did not change the file"; fi`.
+A `sed` pattern that doesn't match changes nothing and reports no error, so without this
+check a "mutation" could run the tests on unchanged code and look like a pass.
+
+PowerShell: `(Get-FileHash run.py).Hash -eq (Get-FileHash $S\run.py.orig).Hash`.
+
+*First used in 032*
+
+### shell function: name a repeated sequence
+
+`name() { command1; command2 "$1"; }`. Defines a function for the rest of this shell
+session. Inside it, `$1`, `$2`, … are its arguments, and `return` leaves it early.
+
+Example (032, one mutation per call: restore the original, apply one `sed` edit, check that
+it changed something, run the tests):
+`mutate() { cp "$S/run.py.orig" run.py; sed -i "$1" run.py; …; python -m unittest …; }`,
+then `mutate 's/…ValueError, //' "no ValueError"`. ⚠️ It overwrites `run.py`, so keep the
+backup, restore it after the last call, and check with `git diff --quiet -- run.py`.
+
+PowerShell: `function Invoke-Mutation($Edit, $Name) { … }`, using a verb-noun name, so it
+can't collide with a built-in alias.
+
+*First used in 032*
 
 ### tr: translate characters
 
@@ -1104,6 +1257,39 @@ Example: `grep -n "TCP on" README.md | cat -A | cut -c1-140`
 PowerShell: `… | ForEach-Object { $_.Substring(0, [Math]::Min(140, $_.Length)) }`.
 
 *First used in 003*
+
+### xargs: turn input lines into arguments
+
+`<list> | xargs [-0] <command>`. Reads names from stdin and runs `<command>` with them as
+arguments, for a command that takes arguments rather than reading stdin (here `tar -c`).
+
+- `-0`: names are separated by NUL bytes, from `git ls-files -z` or `find -print0`, so
+  spaces in a name are safe.
+
+Example: `git ls-files -z | xargs -0 tar -cf -` (see
+[git ls-files](#git-ls-files-list-tracked-files)).
+
+PowerShell: pass the list as an argument instead: `tar -cf $S\copy.tar (git ls-files)`.
+
+*First used in 028*
+
+### diff <(…) <(…): compare two commands' output
+
+`diff <(cmd1) <(cmd2)`. Bash *process substitution*: each `<(…)` runs a command and gives
+its output to `diff` as if it were a file. `diff` prints the lines that differ and exits 0
+when there are none, so `&& echo yes || echo NO` turns it into a yes/no check.
+
+Example (028, before force-deleting a stale branch): is the old 6.2 commit the same change
+as the merged one?
+`diff <(git diff e872f44^ e872f44 -- server.py tests/test_server.py) <(git diff 65d08cd^ 65d08cd -- server.py tests/test_server.py) >/dev/null && echo yes || echo NO`.
+`<commit>^` is that commit's parent, so `git diff c^ c` is the commit's own change.
+`git range-diff` does the same for whole series of commits.
+
+PowerShell has no process substitution: `Compare-Object (git diff e872f44^ e872f44) (git diff 65d08cd^ 65d08cd)`
+prints nothing when they match. (`^` needs no quoting in PowerShell; it is special only in
+cmd.exe.)
+
+*First used in 028*
 
 ### sort / uniq -c: count repeated lines
 
@@ -1194,6 +1380,10 @@ undo it.
   `sed -i -e '/^<<<<<<< HEAD$/d' -e '/^=======$/d' -e '/^>>>>>>> origin\/master$/d' docs/dev-journal/README.md`
   (`\/` is a `/` inside a `/…/` pattern). Then `grep -c` for the markers to check that none
   are left.
+- `-E`: extended regex, as in [grep -E](#grep-search-text): `( )`, `+`, `?` and `|` work
+  without backslashes. Example (032, as a filter): `… | sed -E 's/ \(tests[^)]*\)//'`
+  deletes unittest's ` (tests.module.Class.test)` suffix, where `\(` is a literal
+  parenthesis.
 - ⚠️ In GNU sed's basic regex, `\|` means "or", so `s/a\|b/…/` matches `a` *or* `b`. It is not
   a literal `|`, which needs no backslash. Mixing them up can match an empty string and
   scramble the line, so check the result with `sed -n '<N>p'` and fix it with `git diff`.
@@ -1209,7 +1399,7 @@ leaves files alone. Example: `git show HEAD:server.py | sed 's/old/new/' > serve
 afterwards. PowerShell: `(git show HEAD:server.py) -replace 'old','new' | Set-Content
 -Encoding utf8 server.py`.
 
-*First used in 001; filter form added in 005; `g` and `;` added in 008; `/pattern/d` added in 017; `-e` added in the lifecycle-2 merge*
+*First used in 001; filter form added in 005; `g` and `;` added in 008; `/pattern/d` added in 017; `-e` added in the lifecycle-2 merge; `-E` added in 032*
 
 ### heredoc: multi-line input to a command
 

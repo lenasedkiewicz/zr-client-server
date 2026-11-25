@@ -37,6 +37,10 @@ zr-client-server/
 ├── .github/workflows/tests.yml  # CI: tests on Linux + Windows (step 17)
 ├── tests/
 │   ├── certs/           # test-only TLS certificates (step 10)
+│   ├── test_admin_setup.py
+│   ├── test_client.py   # client errors and timeouts, with mocks (step 16, batch 7)
+│   ├── test_protocol.py # framing, without sockets (step 16, task 2.2)
+│   ├── test_run.py      # launcher clean-up, with mocks (step 16, batch 8)
 │   └── test_server.py   # unittest (stdlib) end-to-end tests
 ├── PLAN.md
 ├── README.md
@@ -129,6 +133,11 @@ zr-client-server/
   succeeds from the `listen()` backlog, but its TLS handshake waits for `accept()`: on timeout
   the client says the server may be busy. After a reply timeout it disconnects without
   reading again (same `makefile()` caveat as task 5.2). The prompt itself never times out.
+- *(step 16, task 8.2, part 1)* The exit code says how the session ended (`config.py`, README
+  "Exit codes"). `EXIT_OK` (0) when the user ends it or after `stop`, `EXIT_FAILURE` (1) for
+  every failure above, and `EXIT_INTERRUPTED` (130) for Ctrl+C while connecting or waiting.
+  `main()` returns the code and `__main__` calls `sys.exit(main())`, so tests check the code
+  without catching `SystemExit`. This is what lets `run.py` pass on a real code (part 2).
 
 ## Step 6 — tests (`tests/test_server.py`, stdlib `unittest`)
 - Start server in a background thread on a free port; connect a raw socket;
@@ -142,6 +151,21 @@ same on every OS, unlike separate `.bat` / `.sh` scripts.
 
 - **Server already running?** Try to connect to `HOST:PORT` first. If it succeeds, skip
   starting a new server (avoids "address already in use") and go straight to the client.
+  - *(step 16, task 8.3)* "Something accepted a TCP connection" is not "our server
+    answered". `probe_server()` does the real exchange, each step limited by
+    `PROBE_TIMEOUT` (1 s): a TLS handshake with the pinned `BASE_DIR/server.crt`, then
+    `help` (no login needed), checked with the client's `check_response`. It returns a
+    `ServerState`:
+    - `FREE`: the connect was refused, so start a server.
+    - `READY`: reuse it.
+    - `BUSY`: TCP connected, but the handshake timed out. Our server accepts the next
+      client only when it's free, but a program that listens and never accepts looks the
+      same, and the message says so.
+    - `NOT_OURS`: no TLS, another certificate, or a bad reply.
+
+    `BUSY` and `NOT_OURS` exit with `EXIT_LAUNCHER_FAILED` before anything starts. A missing
+    certificate is reported up front. Each probe now shows in the server log as INFO
+    connect/disconnect, not as a "TLS handshake failed" warning.
 - **Start the server in its own terminal window**, so its log stays separate from the
   client prompt:
   - Windows: `subprocess.Popen([sys.executable, "server.py"], creationflags=CREATE_NEW_CONSOLE)`.
@@ -152,18 +176,45 @@ same on every OS, unlike separate `.bat` / `.sh` scripts.
     the same terminal, with its output going to `server.log`.
 - **Wait until the server is ready**: try to connect every 0.1 s, give up after ~5 s with a
   clear error. This is better than a fixed `sleep`.
+  - *(step 16, task 8.3)* The wait probes with `probe_server()` until `READY`. `NOT_OURS`
+    ends it at once, because another program took the port. After a timeout with a window,
+    it prints how to see the window's error (`python server.py` in a terminal: a console
+    window closes when its program exits). It never starts a second server, because the
+    first may just be slow.
 - **Run the client in the current terminal** (`subprocess.run([sys.executable, "client.py"])`),
   so the user types commands where they ran `run.py`.
 - **Shutdown**: `stop` already ends both processes, and the server window closes with them.
   If the user leaves the client in another way (Ctrl+C / EOF), the launcher leaves the
   server running and prints how to stop it. Only a server started in the background is
   stopped by the launcher, because it has no window of its own.
+  - *(step 16, task 8.1)* That background server is stopped on **every** way out of
+    `main()`: a `try` that starts before the server does, with `stop_background_server` in
+    its `finally`. This covers a normal end, the start-up timeout's `sys.exit(1)`, and Ctrl+C
+    while waiting for start-up, which prints "Start-up cancelled" instead of a traceback.
+    Stopping escalates: `terminate()`, then `wait(timeout=STOP_TIMEOUT)` (5 s), then
+    `kill()` + `wait()`. A server in a window or one already running is never touched. It is
+    only probed after the client ends, to tell the user whether it is still running.
+  - *(step 16, task 8.2, part 2)* **Exit code:** `main()` returns the client's exit code, and
+    `__main__` calls `sys.exit(main())`. The client runs under `Popen` + `wait()`, retried on
+    `KeyboardInterrupt`. Ctrl+C reaches the client in the same terminal, and the launcher
+    waits for its code instead of killing it, as `subprocess.run` would. A POSIX
+    `returncode` of -N (killed by signal N) becomes 128 + N. The launcher's own failures
+    exit with `EXIT_LAUNCHER_FAILED` (2): no admin possible, or the start-up timeout. Ctrl+C
+    before the client starts exits with `EXIT_INTERRUPTED` (130). README "Exit codes" has
+    the table.
+  - *(step 16, pre-review fix on batch 8)* **Ctrl+C anywhere outside the client** gives
+    "Interrupted" and 130, not a traceback. `main()` wraps the launcher's body
+    (`launch()`) as the last line of defence. The specific handlers inside it keep their
+    messages. It covers the first probe (about 3 s against a silent peer), the stop wait
+    and the exit check. A Ctrl+C during the 5 s stop wait kills the background server at
+    once and is then re-raised, so the run still reports 130.
 - Use `sys.executable` and paths relative to `run.py`, so it works from any working
   directory and inside a virtualenv.
 - README: add a "Quick start" section with `python run.py`; keep the two-terminal
   instructions as the manual alternative.
-- Tests: none automated (opening windows can't be tested reliably); check by hand on
-  Windows (see Verification).
+- Tests: opening windows can't be tested reliably, so check that by hand on Windows (see
+  Verification). The rest is tested in `tests/test_run.py` with `unittest.mock` (step 16,
+  batch 8): no real processes, and every step `main()` takes is a mock.
 
 ## Step 8 — user accounts: register
 Lets a user create an account with a password, as groundwork for login (step 9).
@@ -231,6 +282,13 @@ salted PBKDF2 hashes; this adds the in-transit layer (defence in depth).
   - Log "Client connected" only after a successful handshake.
   - **Fail closed:** cert or key missing → exit with a message showing the `openssl`
     command. Never fall back to plain text.
+  - *(step 16, pre-review fix on batch 8)* **Unusable**, not only missing: a corrupt file,
+    a non-PEM file or a key that doesn't match raises `ssl.SSLError`; a file without read
+    permission, or a folder, raises `PermissionError`. Both are `OSError`s, like a failed
+    bind, so the server loads the TLS context in its own `try` before `Server()` binds,
+    and `Server()`'s `except OSError` means only "could not listen". The client and the
+    launcher load the certificate instead of checking that it exists, and catch any
+    `OSError` after `FileNotFoundError`. Each names the file and how to fix it.
 - **Client:** `ssl.create_default_context(cafile=TLS_CERT_FILE)` — certificate and hostname
   verification stay on, and only our certificate is trusted (pinning); then
   `wrap_socket(sock, server_hostname=HOST)`. Missing `server.crt` or a failed verification
