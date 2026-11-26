@@ -9,15 +9,10 @@ The owner of this repo builds it while preparing for junior and mid software eng
 
 ## The project
 
-`zr-client-server` is a client/server app over raw TCP sockets in **pure Python, standard library only, with no frameworks**. This is a hard requirement of the original task. The server answers `uptime`, `info`, `help` and `stop` in newline-delimited JSON.
+`zr-client-server` is a client/server app over raw TCP sockets in **pure Python, standard library only, with no frameworks**. This is a hard requirement of the original task. The server answers commands in newline-delimited JSON over TLS, with user accounts, login and an admin role. The README's command table lists the commands.
 
-- `config.py`: shared settings (host, port, encoding, version)
-- `protocol.py`: `send_message` / `receive_message` (the NDJSON framing)
-- `server.py`: `Server` class, accept loop, command dispatch dict
-- `client.py`: interactive prompt
-- `run.py`: launcher that starts server and client together
-- `tests/test_server.py`: end-to-end `unittest` tests
-- `PLAN.md`: the plan, organised as **Steps 1–7** (all delivered); `README.md`: user docs
+- **Where things are:** the `PLAN.md` Step 2 tree and the README's "Project structure" list every file, so read them instead of relying on a copy here. In short, `server.py`, `client.py` and `run.py` (the launcher) are the programs. `protocol.py` is the NDJSON framing and `config.py` the shared settings. The other modules support accounts and login, and `tests/` holds the `unittest` suite.
+- `PLAN.md`: the plan, as numbered steps. A large effort gets its own file in `docs/plans/` and one step in `PLAN.md` that links to it. `README.md`: user docs.
 
 The commits for Steps 1–7 predate this skill and have no journal entries. Don't backfill them unless the user asks.
 
@@ -31,7 +26,7 @@ Write a short briefing with these three headings:
 - Dependencies: the project is stdlib-only. Name every new stdlib module used and say why it was chosen over the obvious alternative. A third-party package breaks the task's "no frameworks" requirement, so never add one without asking the user explicitly first.
 
 **b) How it fits**
-- *In the plan:* which step in `PLAN.md` this chunk delivers, and what it unblocks next. Steps 1–7 are done, so new work usually needs a new step (Step 8, 9, …). Propose its wording in the briefing and add it to `PLAN.md` in the same commit. If the chunk changes a decision recorded in `PLAN.md` or `README.md` (protocol, commands, project structure, how to run), update those files in the same commit too.
+- *In the plan:* which step in `PLAN.md` this chunk delivers, and what it unblocks next. Work that no step covers gets a new step after the last one. Propose its wording in the briefing and add it to `PLAN.md` in the same commit. If the chunk changes a decision recorded in `PLAN.md` or `README.md` (protocol, commands, project structure, how to run), update those files in the same commit too.
 - *In general practice:* the engineering principle or pattern behind it. Examples: separation of concerns, message framing, single source of truth (the dispatch dict that also generates `help`), graceful shutdown, end-to-end vs unit tests, conventional commits. Explain it in plain words, and say when you would *not* do it this way.
 
 **c) Commit**
@@ -41,7 +36,7 @@ Keep the briefing tight, at roughly one screen. If the chunk turns out to be too
 
 ## 2. Code
 
-Implement only what the briefing describes. When you make a decision the briefing didn't foresee, say so in one line as you go. Match the existing style: type hints, short docstrings, constants in `config.py`, and English in code, comments and messages.
+Implement only what the briefing describes. When you make a decision the briefing didn't foresee, say so in one line as you go. Match the style of the module you're editing: short docstrings, constants in `config.py`, and English in code, comments and messages. Most modules have no type hints. Add them only where the module already uses them, or propose adding them as their own chunk.
 
 Before committing, verify and report the result honestly:
 - `python -m unittest discover tests`: always. New server behaviour gets a test in `tests/`.

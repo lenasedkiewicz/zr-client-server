@@ -1,7 +1,7 @@
 ---
 id: 001
 title: Semantic Versioning (SemVer) and pre-release versions
-date: 2026-10-19
+date: 2026-11-26
 asked-during: "feat: report alpha version 0.1.0-alpha in info"
 tags: [versioning, semver, pre-release, release-management]
 ---
@@ -37,9 +37,10 @@ as-is unless a serious bug turns up.
 
 ## Where it shows up in zr-client-server
 
-- `config.py:8`: `SERVER_VERSION = "0.1.0-alpha"`, the single source of truth.
+- `config.py`: `SERVER_VERSION`, the single source of truth. It started at `0.1.0-alpha`
+  and is `0.1.1-alpha` at the time of writing, after the first batch of review fixes.
 - `server.py`: `cmd_info` returns it, so `info` replies
-  `{"version": "0.1.0-alpha", "created": "2026-10-01"}`.
+  `{"version": "0.1.1-alpha", "created": "2026-10-01"}`.
 - `tests/test_server.py`: `test_version_is_semver` checks the string against the official
   SemVer regex.
 - `PLAN.md`, Step 14: the bumping rules for this project.
@@ -57,15 +58,16 @@ The version had been `1.0.0`. That claimed a stable API for a protocol that's st
   where "how new is it" matters more than "will it break me" (Ubuntu, pip itself).
 - **Version from git tags** (`git describe` → `v0.1.0-alpha-3-gabc123`): with this, the
   version can never drift from the history. It needs build tooling to inject the version,
-  which is overkill for a two-file stdlib app.
+  which is overkill for a small stdlib app with no build step.
 
 ## Interview answer
 
 "I use Semantic Versioning: `MAJOR.MINOR.PATCH`. The number is a contract with clients. A
 `MAJOR` bump warns them that something breaks, `MINOR` adds features safely and `PATCH`
 only fixes bugs. A project that's still being shaped stays on `0.x`, and a pre-release tag
-such as `-alpha` marks a build as unstable. That's why our server reports `0.1.0-alpha`.
-The version lives in one constant in `config.py`, and a test checks that it's valid SemVer."
+such as `-alpha` marks a build as unstable. That's why our server reports an `-alpha`
+version such as `0.1.1-alpha`. The version lives in one constant in `config.py`, and a
+test checks that it's valid SemVer."
 
 ## Read more
 

@@ -372,9 +372,15 @@ files git tracks, so it skips `.git/`, ignored files and virtualenvs.
 
 Example: `git grep -n "skip" tests`
 
+- `-E`: extended regular expressions, so `|` means "or" without a backslash.
+- `-- <path>…`: search only these paths. The `--` stops git reading a path as a commit name.
+
+Example: `git grep -n -E "two-file|Steps? 1.?7|config\.py:8" -- .claude docs/concepts README.md`
+finds the stale sentences of task 9.1 in one pass.
+
 PowerShell: the same command.
 
-*First used in 010*
+*First used in 010; `-E` and `-- <path>` added in task 9.1*
 
 ### git log: list commits
 
@@ -463,6 +469,15 @@ does only this.
 - `-b <new-branch> <start>`: create the branch at `<start>` instead of the current commit.
   Example: `git checkout -b chore/pre-review-skill master` (start from `master` while
   standing on an unmerged fix branch).
+  When `<start>` is a remote branch such as `origin/master`, git also makes the new branch
+  **track** it (`branch 'x' set up to track 'origin/master'`). A later `git pull` would then
+  pull `master`, and a `git push` would be aimed at `master` (the default `push.default=simple`
+  refuses because the names differ). Skip the link with `--no-track`, or remove it
+  afterwards with `git branch --unset-upstream`, which only forgets the tracked branch and
+  deletes nothing. The first `git push -u origin <branch>` then sets the right upstream.
+  Example: `git switch -c docs/review-doc-drift origin/master`, then
+  `git branch --unset-upstream` (start batch 9 from the newest `master` while batch 8's PR
+  is still open).
 - `-q`: quiet, no "Switched to branch" message.
 - ⚠️ `-- <path>…`: restore the files from the index, which **throws away** their uncommitted
   changes, with no undo. Safe only for changes you made a moment ago on purpose, or ones
@@ -477,7 +492,8 @@ Example: `git checkout feature/admin`; `git checkout -b fix/server-survives-bad-
 already-merged one)
 
 *First used in 008; `-b` added in the step 16 plan commit; `-q` added in 020; `git switch`
-first used in 021; start point added with the pre-review skill; `-- <path>` added in 026*
+first used in 021; start point added with the pre-review skill; `-- <path>` added in 026;
+remote start point and its tracking added in task 9.1*
 
 ### git merge: join another branch into the current one
 
@@ -723,7 +739,19 @@ Example: `git stash push -m "task 3.1 logging WIP"`;
 If `pop` hits a conflict, the entry stays on the stack (`git stash list`) and nothing is
 lost. Resolve the conflict, then `git stash drop`.
 
-*First used in 011; `-m` added in 015, `-u` added in 016*
+- `apply`: like `pop`, but the entry stays on the stack. Neither one restores what was
+  **staged** unless you add `--index`: the changes come back unstaged, so a `git commit`
+  right after finds nothing to commit and fails.
+- `create`: builds a stash commit from the current changes and prints its hash. It leaves
+  the files, the index and the stack alone, which makes it a safe snapshot to hand to
+  another command.
+
+Example (task 9.1): `snap=$(git stash create)`, then the old
+[`git merge-tree`](#git-merge-tree-preview-a-merge-without-touching-files) form with
+`"$snap"` checks whether uncommitted work would conflict with another PR's branch, with
+nothing committed. PowerShell: `$snap = git stash create`.
+
+*First used in 011; `-m` added in 015, `-u` added in 016; `apply`, `create` added in task 9.1*
 
 ### git for-each-ref: list branches and tags with a format
 
@@ -766,7 +794,37 @@ mean the local branch and the remote copy are in sync, so it's safe to keep work
 
 Example: `git reflog -15 --date=short`
 
-*First used in 016*
+It's also how to undo a reset: `git reflog -4` shows `reset: moving to HEAD~1` and the hash
+`HEAD` pointed to before it.
+
+*First used in 016; undoing a reset added in task 9.1*
+
+### git reset --soft: move the branch pointer, keep the changes
+
+`git reset --soft <commit>`. Moves the current branch to `<commit>`. The index and the
+working tree aren't touched, so the changes of the commits you moved past show up as
+staged. `HEAD~1` means "one commit back" (the first parent).
+
+- `-q`: quiet.
+- ⚠️ It rewrites where the branch points. It's safe on a branch nobody else has, while the
+  reflog still holds the old hash. Never run it on a pushed branch, because pushing that
+  needs `--force`. `--hard` also overwrites the working tree and throws away uncommitted
+  changes. It isn't used in this repo.
+
+What happened in task 9.1: a chain meant to undo a temporary commit,
+`… && git commit -q -m tmp && … ; git reset -q --soft HEAD~1`, joined the reset with `;`,
+so it ran even though the commit had failed. It moved the branch one commit **behind**
+`master`. The edits were still in the working tree, and the reflog showed the old hash,
+so `git reset -q --soft 78082b9` put the branch back exactly. Lessons: join an undo to
+the step it undoes with `&&`, never `;`, and prefer commands that leave branches alone,
+like `git stash create`.
+
+Example: `git reflog -4`, then `git reset -q --soft 78082b9`.
+
+PowerShell: the same command. In Windows PowerShell 5.1, `&&` doesn't exist, so use
+`if ($?) { … }`.
+
+*First used in task 9.1*
 
 ### git worktree list: list working folders
 
