@@ -1176,6 +1176,27 @@ PowerShell: `… | Group-Object | Select-Object Count, Name`.
 
 *First used in 011*
 
+### icacls: show who may open a file (Windows)
+
+`icacls <file>`. Prints a file's access control list (ACL), meaning which users and groups
+may do what with it. On Windows the ACL decides access. Python's file mode (`0o600`) only
+sets the read-only flag there. Each line is one entry, for example
+`BUILTIN\Users:(I)(RX)`:
+
+- `(I)`: inherited from the parent folder, not set on the file itself.
+- `F` full, `M` modify (read, write, delete), `RX` read and execute.
+
+Group names come in the system's language: `Użytkownicy uwierzytelnieni` is
+`Authenticated Users`, and Git Bash shows its Polish letters garbled.
+
+Example (036): `icacls users.json; icacls server.key` showed both files inherit
+`Authenticated Users:(M)` from `D:\`, so every local account could read and overwrite the
+password hashes and the TLS key. Run it in PowerShell. In Git Bash, options that start
+with `/` (e.g. `/grant`) get rewritten into paths unless you set
+[`MSYS_NO_PATHCONV=1`](#msys_no_pathconv-stop-git-bash-rewriting-paths).
+
+*First used in 036*
+
 ### printf: print text with escapes
 
 `printf '<format>'`. Like `echo`, but `\n` reliably means a line break on every shell.

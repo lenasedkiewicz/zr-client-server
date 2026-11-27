@@ -186,6 +186,58 @@ are cleared when the server restarts.
 
 Passwords travel inside the TLS connection, so a packet capture sees only ciphertext.
 
+## Security assumptions
+
+This is the server's threat model: who it trusts, what it protects, and the gaps it knowingly
+leaves. It's a learning project for one machine. Read this before running it anywhere else.
+
+### Who can reach it
+
+- The server listens on `127.0.0.1` only (`HOST` in `config.py`), so only programs on the
+  same machine can connect. Every local user and process is a possible client. Exposing it
+  to a network (`HOST = "0.0.0.0"`) isn't supported: the gaps below would then be open to
+  anyone on that network.
+- **Registration is open.** `register` needs no login, so anyone who can connect can create
+  an account and log in. "Has an account" is not a barrier: the real trust boundary is
+  "can run a program on this machine".
+- The only step that needs more than a connection is creating the first admin, which happens
+  in a terminal on the server machine (see "First use").
+
+### What is protected
+
+The values live in `config.py`, under the names given here.
+
+| What | How | Where |
+|------|-----|-------|
+| Passwords and replies in transit | TLS, with a minimum version (`minimum_version`). The client trusts only `server.crt`, so another program on the port can't pose as the server | `client.py`, `server.py` |
+| Passwords at rest | Never stored: a random salt and a PBKDF2-HMAC-SHA256 hash (`PBKDF2_ITERATIONS`) | `users.py` |
+| The hashes file | Created owner-only (`USERS_FILE_MODE`) on Linux and macOS | `users.py` |
+| Online password guessing | `MAX_FAILED_LOGINS` per username lock it for `LOGIN_LOCKOUT_SECONDS`. Unknown usernames get the same error and the same count | `throttle.py` |
+| Logs | Requests are never logged, because `login` and `register` carry passwords | `server.py` |
+| Memory and stuck clients | A size limit per message (`MAX_MESSAGE_SIZE`), a handshake deadline (`TLS_HANDSHAKE_TIMEOUT`) and an idle timeout (`CLIENT_IDLE_TIMEOUT`) | `protocol.py`, `server.py` |
+
+### What isn't (known gaps)
+
+- **Any logged-in user can `stop` the server.** With open registration, that means any
+  local program. The planned fix is to make `stop` admin-only (`PLAN.md` Step 13, "Next").
+  The admin role is stored but not checked yet.
+- **One client at a time is a denial-of-service surface.** Whoever is connected holds the
+  server, and everyone else waits. The idle timeout frees the slot after 120 s of silence,
+  but a client that sends one byte just under every 120 s keeps it ("slowloris", see
+  "Protocol"). Only a deadline per message, or serving clients concurrently, would fix it.
+- **The lockout can be used as a weapon.** Failures count per username, not per client (every
+  client is `127.0.0.1` anyway). So anyone who knows a username, the admin's for example,
+  can keep it locked by failing 5 logins a minute. The counters are kept in memory, so a
+  restart clears them.
+- **On Windows the file modes don't apply.** `users.json` and `server.key` get their folder's
+  permissions (ACLs). Inside your user profile that is usually owner-only. In a folder like
+  `D:\Programming` it's often readable, and even writable, by every local account. Check
+  with `icacls users.json`.
+- **`server.key` is an unencrypted file.** Anyone who can read it can pose as the server.
+  Keep it as private as `users.json`: it's git-ignored, but its permissions are up to you.
+- **No audit trail.** The log records connects and disconnects, but not which user logged
+  in or ran `stop`.
+
 ## Project structure
 
 ```

@@ -272,7 +272,11 @@ passwords offline.
 - **Test:** after `register`, `stat.S_IMODE(os.stat(path).st_mode) == 0o600`; skipped on
   Windows, run under WSL/Linux.
 - **Known gaps:** an existing `0o644` file is fixed on its next save; a stale
-  `users.json.tmp` left by a crash keeps its old mode.
+  `users.json.tmp` left by a crash keeps its old mode. *(Step 16, task 9.2)* On Windows the
+  file gets its folder's ACL, which is owner-only only inside the user profile. This repo on
+  `D:\` gives `Authenticated Users` modify rights to `users.json` and `server.key`
+  (`icacls`). The README "Security assumptions" section records this. A fix is still to be
+  decided, because the stdlib can't set ACLs.
 - **Commit:** `feat: create users file with owner-only permissions`.
 
 ## Step 12 — lock out logins after repeated failures
